@@ -1,7 +1,7 @@
 <h1 align="center">Hi 👋, I'm mr-adnan-adu</h1>
 <h3 align="center">A passionate frontend developer from India</h3>
 
-<p align="left"> <img src="https://komarev.com/ghpvc/?username=pr0fess0r-99&label=Profile%20views&color=0e75b6&style=flat" alt="mr-adnan-adu" /> </p>
+<p align="left"> <img src="https://komarev.com/ghpvc/?username=mr-adnan-adu&label=Profile%20views&color=0e75b6&style=flat" alt="mr-adnan-adu" /> </p>
 
 <p align="left"> <a href="https://github.com/ryo-ma/github-profile-trophy"><img src="https://github-profile-trophy.vercel.app/?username=mr-adnan-adu" alt="mr-adnan-adu" /></a> </p>
 
@@ -12,8 +12,8 @@
 <h3 align="left">Connect with me:</h3>
 <p align="left">
 <a href="https://fb.com/" target="blank"><img align="center" src="https://raw.githubusercontent.com/rahuldkjain/github-profile-readme-generator/master/src/images/icons/Social/facebook.svg" alt="mrk_yt" height="30" width="40" /></a>
-<a href="https://instagram.com/a.d_n_a.n" target="blank"><img align="center" src="https://raw.githubusercontent.com/rahuldkjain/github-profile-readme-generator/master/src/images/icons/Social/instagram.svg" alt="a.d_n_a.n" height="30" width="40" /></a>
-<a href="https://www.youtube.com/c/malayalamebooks" target="blank"><img align="center" src="https://raw.githubusercontent.com/rahuldkjain/github-profile-readme-generator/master/src/images/icons/Social/youtube.svg" alt="MALYALAM EBOOKS LIBRARY" height="30" width="40" /></a>
+<a href="https://instagram.com/a.d_n_a.n" target="blank"><img align="center" src="https://raw.githubusercontent.com/rahuldkjain/github-profile-readme-generator/master/src/images/icons/Social/instagram.svg" alt="mrk_yt_" height="30" width="40" /></a>
+<a href="https://www.youtube.com/@malayalamebooks" target="blank"><img align="center" src="https://raw.githubusercontent.com/rahuldkjain/github-profile-readme-generator/master/src/images/icons/Social/youtube.svg" alt="EBOOKS MALYALAM LIBRARY" height="30" width="40" /></a>
 </p>
 
 <h3 align="left">Languages and Tools:</h3>
