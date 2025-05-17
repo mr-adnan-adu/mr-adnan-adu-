@@ -2,7 +2,7 @@ services:
   - type: web
     name: telegram-ebook-bot
     env: python
-    region: oregon # അല്ലെങ്കിൽ നിങ്ങളുടെ അടുത്ത region (oregon, ireland, frankfurt, singapore)
+    region: oregon
     plan: free
     branch: main
     buildCommand: pip install -r requirements.txt
@@ -12,8 +12,3 @@ services:
         fromSecret: 5681235797:AAG1aNjC-FgDE5Zws1Z-t_4pGGkBN0yh6yM
       - key: 1980071557
         fromSecret: 1980071557
-secrets:
-  - name: 5681235797:AAG1aNjC-FgDE5Zws1Z-t_4pGGkBN0yh6yM
-    fromEnv: 5681235797:AAG1aNjC-FgDE5Zws1Z-t_4pGGkBN0yh6yM
-  - name: 1980071557
-    fromEnv: 1980071557
