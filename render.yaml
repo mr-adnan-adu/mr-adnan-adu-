@@ -7,8 +7,3 @@ services:
     branch: main
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
-    envVars:
-      BOT_TOKEN:
-        fromSecret: BOT_TOKEN
-      ADMIN_ID:
-        fromSecret: ADMIN_ID
