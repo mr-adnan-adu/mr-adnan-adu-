@@ -1,86 +1,128 @@
-import os
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Updater, CommandHandler, CallbackContext
+from telegram.error import BadRequest
 import requests
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-# Admin user ID (add your Telegram numeric ID here or set in env variable)
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "123456789"))
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+ADMIN_ID = 123456789
+CHANNEL_USERNAME = "@yourchannel"
 
-def is_admin(user_id):
-    return user_id == ADMIN_ID
+users = set()
 
-# Dynamic welcome message (can be edited by admin)
-welcome_message = "📚 Welcome to the Public Domain eBook Bot!\nSend me a book name to search in Project Gutenberg."
+def is_subscribed(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    try:
+        member = context.bot.get_chat_member(CHANNEL_USERNAME, user_id)
+        return member.status in ['member', 'creator', 'administrator']
+    except BadRequest:
+        return False
 
-# Search Gutenberg API
-def search_gutenberg(query):
-    url = f"https://gutendex.com/books?search={query}"
-    response = requests.get(url)
-    if response.status_code == 200:
-        data = response.json()
-        books = data.get("results", [])
-        return books[:3]
-    return []
+def restricted(func):
+    def wrapper(update: Update, context: CallbackContext, *args, **kwargs):
+        if not is_subscribed(update, context):
+            update.message.reply_text(f"ദയവായി ഞങ്ങളുടെ ചാനലിൽ ചേരുക {CHANNEL_USERNAME} ബോട്ട് ഉപയോഗിക്കാനായി.")
+            return
+        return func(update, context, *args, **kwargs)
+    return wrapper
 
-# /start command
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(welcome_message)
+def admin_only(func):
+    def wrapper(update: Update, context: CallbackContext, *args, **kwargs):
+        if update.effective_user.id != ADMIN_ID:
+            update.message.reply_text("ക്ഷമിക്കണം, ഈ കമാൻഡ് നിങ്ങൾക്ക് അനുവദനീയമല്ല.")
+            return
+        return func(update, context, *args, **kwargs)
+    return wrapper
 
-# Search book (anyone can use)
-async def search_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.message.text.strip()
-    books = search_gutenberg(query)
+@restricted
+def start(update: Update, context: CallbackContext):
+    users.add(update.effective_user.id)
+    update.message.reply_text("സ്വാഗതം! /search <പുസ്തക നാമം> ഉപയോഗിച്ച് പുസ്തകങ്ങൾ Anna's Archive ൽ തിരയാം.")
 
-    if not books:
-        await update.message.reply_text("❌ No books found.")
+@restricted
+def search(update: Update, context: CallbackContext):
+    query = " ".join(context.args)
+    if not query:
+        update.message.reply_text("ദയവായി ഒരു പുസ്തക നാമം നൽകുക. ഉദാ: /search Python")
         return
 
-    for book in books:
-        title = book["title"]
-        authors = ", ".join([a["name"] for a in book["authors"]])
-        link = book["formats"].get("application/pdf") or book["formats"].get("text/html")
-
-        if link:
-            await update.message.reply_text(
-                f"📖 *{title}*\n👤 {authors}\n🔗 [Download Here]({link})",
-                parse_mode="Markdown",
-                disable_web_page_preview=True,
-            )
-        else:
-            await update.message.reply_text(
-                f"📖 *{title}*\n👤 {authors}\n❌ No download link found."
-            )
-
-# /stats admin command
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        await update.message.reply_text("⛔ You are not authorized to use this command.")
-        return
-    await update.message.reply_text("📊 Bot is running smoothly. No user data tracking enabled.")
-
-# /editbot admin command - edit welcome message
-async def editbot(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        await update.message.reply_text("⛔ You are not authorized to use this command.")
+    search_url = f"https://archive.org/advancedsearch.php?q={query.replace(' ', '+')}&fl[]=identifier&sort[]=downloads desc&rows=1&page=1&output=json"
+    try:
+        res = requests.get(search_url).json()
+        docs = res.get("response", {}).get("docs", [])
+        if not docs:
+            update.message.reply_text("ക്ഷമിക്കണം, കണ്ടെത്തിയില്ല.")
+            return
+        identifier = docs[0]["identifier"]
+        download_link = f"https://archive.org/download/{identifier}/{identifier}.pdf"
+    except Exception as e:
+        update.message.reply_text("Search സമയത്ത് പിശക് സംഭവിച്ചു. വീണ്ടും ശ്രമിക്കുക.")
         return
 
-    global welcome_message
-    new_msg = " ".join(context.args)
-    if not new_msg:
-        await update.message.reply_text("✏️ Usage: /editbot Your new welcome message")
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Download PDF 📥", url=download_link)]
+    ])
+
+    update.message.reply_text(
+        f"‘{query}’ എന്ന പുസ്തകത്തിന്റെ ഡൗൺലോഡ് ലിങ്ക്:",
+        reply_markup=keyboard
+    )
+
+@admin_only
+def broadcast(update: Update, context: CallbackContext):
+    if not context.args:
+        update.message.reply_text("പ്രചരിപ്പിക്കാൻ സന്ദേശം നൽകുക. ഉദാ: /broadcast Hello users!")
         return
+    message = " ".join(context.args)
+    count = 0
+    for uid in users:
+        try:
+            context.bot.send_message(uid, f"📢 Admin Broadcast:
 
-    welcome_message = new_msg
-    await update.message.reply_text("✅ Welcome message updated.")
+{message}")
+            count += 1
+        except:
+            pass
+    update.message.reply_text(f"പ്രചരിപ്പിച്ചത് {count} ഉപയോക്താക്കൾക്ക്.")
 
-# Main bot setup
-TOKEN = os.environ.get("BOT_TOKEN")
-app = ApplicationBuilder().token(TOKEN).build()
+@admin_only
+def stats(update: Update, context: CallbackContext):
+    update.message.reply_text(f"മൊത്തം ഉപയോക്താക്കൾ: {len(users)}")
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("stats", stats))
-app.add_handler(CommandHandler("editbot", editbot))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_book))
+def about(update: Update, context: CallbackContext):
+    text = (
+        "📚 *Ebooks Downloader Bot*
 
-print("✅ Bot running with admin commands...")
-app.run_polling()
+"
+        "Version: 1.0
+"
+        "Created by: Your Name
+"
+        "Anna's Library, archive.org പോലുള്ള സൈറ്റുകളിൽ നിന്നും ഇബുക്കുകൾ ഡൗൺലോഡ് ചെയ്യാം.
+
+"
+        "Commands:
+"
+        "/search <bookname> - പുസ്തകങ്ങൾ തിരയുക
+"
+        "/about - ബോട്ട് വിവരങ്ങൾ
+
+"
+        f"ചാനലിൽ ചേരുക: {CHANNEL_USERNAME}"
+    )
+    update.message.reply_text(text, parse_mode="Markdown")
+
+def main():
+    updater = Updater(BOT_TOKEN, use_context=True)
+    dp = updater.dispatcher
+
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("search", search))
+    dp.add_handler(CommandHandler("broadcast", broadcast))
+    dp.add_handler(CommandHandler("stats", stats))
+    dp.add_handler(CommandHandler("about", about))
+
+    updater.start_polling()
+    updater.idle()
+
+if __name__ == "__main__":
+    main()
