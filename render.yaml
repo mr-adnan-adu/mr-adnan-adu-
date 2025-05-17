@@ -8,7 +8,7 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
     envVars:
-      - key: 5681235797:AAG1aNjC-FgDE5Zws1Z-t_4pGGkBN0yh6yM
-        fromSecret: 5681235797:AAG1aNjC-FgDE5Zws1Z-t_4pGGkBN0yh6yM
-      - key: 1980071557
-        fromSecret: 1980071557
+      - key: "5681235797:AAG1aNjC-FgDE5Zws1Z-t_4pGGkBN0yh6yM"
+        fromSecret: "5681235797:AAG1aNjC-FgDE5Zws1Z-t_4pGGkBN0yh6yM"
+      - key: "1980071557"
+        fromSecret: "1980071557"
