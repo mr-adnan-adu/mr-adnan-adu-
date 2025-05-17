@@ -9,6 +9,6 @@ services:
     startCommand: python bot.py
     envVars:
       - key: BOT_TOKEN
-        fromSecret: "5681235797:AAG1aNjC-FgDE5Zws1Z-t_4pGGkBN0yh6yM"
+        fromSecret: BOT_TOKEN
       - key: ADMIN_ID
-        fromSecret: "1980071557"
+        fromSecret: ADMIN_ID
