@@ -76,8 +76,7 @@ def broadcast(update: Update, context: CallbackContext):
     count = 0
     for uid in users:
         try:
-            context.bot.send_message(uid, f"📢 Admin Broadcast:\n{message_text}")
-
+            context.bot.send_message(uid, f"📢 Admin Broadcast:\n{message}")
             count += 1
         except:
             pass
@@ -89,23 +88,13 @@ def stats(update: Update, context: CallbackContext):
 
 def about(update: Update, context: CallbackContext):
     text = (
-        "📚 *Ebooks Downloader Bot*
-
-"
-        "Version: 1.0
-"
-        "Created by: Your Name
-"
-        "Anna's Library, archive.org പോലുള്ള സൈറ്റുകളിൽ നിന്നും ഇബുക്കുകൾ ഡൗൺലോഡ് ചെയ്യാം.
-
-"
-        "Commands:
-"
-        "/search <bookname> - പുസ്തകങ്ങൾ തിരയുക
-"
-        "/about - ബോട്ട് വിവരങ്ങൾ
-
-"
+        "📚 *Ebooks Downloader Bot*\n\n"
+        "Version: 1.0\n"
+        "Created by: Your Name\n"
+        "Anna's Library, archive.org പോലുള്ള സൈറ്റുകളിൽ നിന്നും ഇബുക്കുകൾ ഡൗൺലോഡ് ചെയ്യാം.\n\n"
+        "Commands:\n"
+        "/search <bookname> - പുസ്തകങ്ങൾ തിരയുക\n"
+        "/about - ബോട്ട് വിവരങ്ങൾ\n\n"
         f"ചാനലിൽ ചേരുക: {CHANNEL_USERNAME}"
     )
     update.message.reply_text(text, parse_mode="Markdown")
