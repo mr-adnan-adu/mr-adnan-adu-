@@ -3,9 +3,9 @@ from telegram.ext import Updater, CommandHandler, CallbackContext
 from telegram.error import BadRequest
 import requests
 
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
-ADMIN_ID = 123456789
-CHANNEL_USERNAME = "@yourchannel"
+BOT_TOKEN = "5681235797:AAG1aNjC-FgDE5Zws1Z-t_4pGGkBN0yh6yM"
+ADMIN_ID = 1980071557
+CHANNEL_USERNAME = "@AiTechWave"
 
 users = set()
 
