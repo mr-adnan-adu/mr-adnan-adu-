@@ -76,9 +76,8 @@ def broadcast(update: Update, context: CallbackContext):
     count = 0
     for uid in users:
         try:
-            context.bot.send_message(uid, f"📢 Admin Broadcast:
+            context.bot.send_message(uid, f"📢 Admin Broadcast:\n{message_text}")
 
-{message}")
             count += 1
         except:
             pass
