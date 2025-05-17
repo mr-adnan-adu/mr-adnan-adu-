@@ -6,7 +6,7 @@ import logging
 
 BOT_TOKEN = "5681235797:AAG1aNjC-FgDE5Zws1Z-t_4pGGkBN0yh6yM"
 ADMIN_ID = 1980071557
-CHANNEL_USERNAME = "@AiTechWave"
+CHANNEL_USERNAME = "AiTechWave"
 
 users = set()
 
