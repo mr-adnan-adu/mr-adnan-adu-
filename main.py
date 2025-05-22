@@ -5,12 +5,14 @@ from urllib.parse import quote
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from aiohttp import web
+from threading import Thread
 import time
 from collections import defaultdict
 from hashlib import md5
 from typing import List, Optional
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
+import json
 import asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
@@ -34,9 +36,6 @@ WEBHOOK_URL = f"{BASE_URL}{WEBHOOK_PATH}"
 # MongoDB configuration
 MONGODB_URI = os.getenv('MONGODB_URI')
 MONGODB_DB_NAME = os.getenv('MONGODB_DB_NAME', 'ebook_bot')
-
-# Z-Library configuration
-ZLIB_URL = os.getenv('ZLIB_URL', 'https://z-lib.is')  # Check current Z-Library domain before deployment
 
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN environment variable is required")
@@ -67,6 +66,7 @@ class MongoDBManager:
                 logger.warning("MongoDB URI not provided, using in-memory storage")
                 return False
                 
+            # Create client with proper options
             self.client = AsyncIOMotorClient(
                 MONGODB_URI,
                 serverSelectionTimeoutMS=5000,
@@ -76,7 +76,10 @@ class MongoDBManager:
                 retryWrites=True
             )
             
+            # Get database
             self.db = self.client[MONGODB_DB_NAME]
+            
+            # Get collections
             self.users_collection = self.db.users
             self.searches_collection = self.db.searches
             self.books_collection = self.db.books
@@ -84,14 +87,17 @@ class MongoDBManager:
             self.cache_collection = self.db.cache
             self.rate_limits_collection = self.db.rate_limits
             
+            # Test connection
             await self.client.admin.command('ping')
             self._connected = True
             
+            # Create indexes
             await self._create_indexes()
+            
             logger.info("Successfully connected to MongoDB Atlas")
             return True
             
-        except (ConnectionFailure, ServerSelectionTimeoutError) as e:
+        except Exception as e:
             logger.error(f"Failed to connect to MongoDB: {e}")
             self._connected = False
             return False
@@ -99,18 +105,22 @@ class MongoDBManager:
     async def _create_indexes(self):
         """Create necessary indexes for optimal performance"""
         try:
+            # Users collection indexes
             await self.users_collection.create_index("user_id", unique=True)
             await self.users_collection.create_index("created_at")
             
+            # Rate limits collection indexes
             await self.rate_limits_collection.create_index("user_id")
             await self.rate_limits_collection.create_index("created_at", expireAfterSeconds=3600)
             
+            # Cache collection indexes
             await self.cache_collection.create_index("cache_key", unique=True)
             await self.cache_collection.create_index("created_at", expireAfterSeconds=3600)
             
+            # Searches collection indexes
             await self.searches_collection.create_index("query")
             await self.searches_collection.create_index("user_id")
-            await self.searches_collection.create_index("created_at", expireAfterSeconds=1800)
+            await self.searches_collection.create_index("created_at", expireAfterSeconds=1800)  # 30 minutes
             
             logger.info("MongoDB indexes created successfully")
             
@@ -138,21 +148,16 @@ class MongoDBManager:
                 upsert=True
             )
             
-        except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-            logger.warning(f"MongoDB unavailable for add_user: {e}; skipping")
         except Exception as e:
             logger.error(f"Error adding user to MongoDB: {e}")
     
     async def get_user_count(self) -> int:
         """Get total number of users"""
         if not self._connected:
-            return len(user_ids)
+            return len(user_ids)  # Fallback to in-memory
             
         try:
             return await self.users_collection.count_documents({})
-        except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-            logger.warning(f"MongoDB unavailable for get_user_count: {e}; using in-memory")
-            return len(user_ids)
         except Exception as e:
             logger.error(f"Error getting user count from MongoDB: {e}")
             return 0
@@ -160,14 +165,11 @@ class MongoDBManager:
     async def get_all_user_ids(self) -> List[int]:
         """Get all user IDs for broadcasting"""
         if not self._connected:
-            return list(user_ids)
+            return list(user_ids)  # Fallback to in-memory
             
         try:
             cursor = self.users_collection.find({}, {"user_id": 1})
             return [doc["user_id"] async for doc in cursor]
-        except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-            logger.warning(f"MongoDB unavailable for get_all_user_ids: {e}; using in-memory")
-            return list(user_ids)
         except Exception as e:
             logger.error(f"Error getting user IDs from MongoDB: {e}")
             return []
@@ -175,12 +177,13 @@ class MongoDBManager:
     async def check_rate_limit(self, user_id: int, max_requests: int = 5, time_window: int = 60) -> bool:
         """Check if user is within rate limits"""
         if not self._connected:
-            return rate_limiter.is_allowed(user_id)
+            return rate_limiter.is_allowed(user_id)  # Fallback to in-memory
             
         try:
             current_time = datetime.utcnow()
             time_threshold = current_time - timedelta(seconds=time_window)
             
+            # Count recent requests
             recent_count = await self.rate_limits_collection.count_documents({
                 "user_id": user_id,
                 "created_at": {"$gte": time_threshold}
@@ -189,6 +192,7 @@ class MongoDBManager:
             if recent_count >= max_requests:
                 return False
             
+            # Add current request
             await self.rate_limits_collection.insert_one({
                 "user_id": user_id,
                 "created_at": current_time
@@ -196,22 +200,20 @@ class MongoDBManager:
             
             return True
             
-        except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-            logger.warning(f"MongoDB unavailable for check_rate_limit: {e}; using in-memory")
-            return rate_limiter.is_allowed(user_id)
         except Exception as e:
             logger.error(f"Error checking rate limit in MongoDB: {e}")
-            return True
+            return True  # Allow on error
     
     async def get_remaining_requests(self, user_id: int, max_requests: int = 5, time_window: int = 60) -> int:
         """Get remaining requests for user"""
         if not self._connected:
-            return rate_limiter.remaining_requests(user_id)
+            return rate_limiter.remaining_requests(user_id)  # Fallback to in-memory
             
         try:
             current_time = datetime.utcnow()
             time_threshold = current_time - timedelta(seconds=time_window)
             
+            # Count recent requests
             recent_count = await self.rate_limits_collection.count_documents({
                 "user_id": user_id,
                 "created_at": {"$gte": time_threshold}
@@ -219,9 +221,6 @@ class MongoDBManager:
             
             return max(0, max_requests - recent_count)
             
-        except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-            logger.warning(f"MongoDB unavailable for get_remaining_requests: {e}; using in-memory")
-            return rate_limiter.remaining_requests(user_id)
         except Exception as e:
             logger.error(f"Error getting remaining requests from MongoDB: {e}")
             return max_requests
@@ -250,13 +249,6 @@ class MongoDBManager:
                 upsert=True
             )
             
-        except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-            logger.warning(f"MongoDB unavailable for cache_search_results: {e}; using in-memory")
-            search_cache[cache_key] = {
-                'results': results,
-                'timestamp': time.time(),
-                'total': len(results)
-            }
         except Exception as e:
             logger.error(f"Error caching search results in MongoDB: {e}")
     
@@ -269,17 +261,14 @@ class MongoDBManager:
             return None
             
         try:
+            # Check if cache exists and is not expired
             cache_doc = await self.cache_collection.find_one({"cache_key": cache_key})
+            
             if cache_doc:
                 return cache_doc.get("results", [])
+            
             return None
             
-        except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-            logger.warning(f"MongoDB unavailable for get_cached_search_results: {e}; checking in-memory")
-            cached = search_cache.get(cache_key)
-            if cached and cached['timestamp'] + 1800 > time.time():
-                return cached['results']
-            return None
         except Exception as e:
             logger.error(f"Error getting cached search results from MongoDB: {e}")
             return None
@@ -297,9 +286,6 @@ class MongoDBManager:
                 upsert=True
             )
             
-        except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-            logger.warning(f"MongoDB unavailable for increment_search_count: {e}; using in-memory")
-            bot_stats.increment_searches()
         except Exception as e:
             logger.error(f"Error incrementing search count in MongoDB: {e}")
     
@@ -312,9 +298,6 @@ class MongoDBManager:
             stats_doc = await self.stats_collection.find_one({"stat_name": "total_searches"})
             return stats_doc.get("count", 0) if stats_doc else 0
             
-        except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-            logger.warning(f"MongoDB unavailable for get_search_count: {e}; using in-memory")
-            return bot_stats.search_count
         except Exception as e:
             logger.error(f"Error getting search count from MongoDB: {e}")
             return 0
@@ -322,28 +305,30 @@ class MongoDBManager:
     async def cleanup_expired_data(self):
         """Clean up expired data (handled by TTL indexes, but can be called manually)"""
         if not self._connected:
-            cleanup_cache()
+            cleanup_cache()  # Fallback to in-memory cleanup
             return
             
         try:
             current_time = datetime.utcnow()
+            
+            # Clean old rate limit entries (older than 1 hour)
             await self.rate_limits_collection.delete_many({
                 "created_at": {"$lt": current_time - timedelta(hours=1)}
             })
+            
+            # Clean old cache entries (older than 30 minutes) 
             await self.cache_collection.delete_many({
                 "created_at": {"$lt": current_time - timedelta(minutes=30)}
             })
+            
             logger.info("Cleaned up expired MongoDB data")
             
-        except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-            logger.warning(f"MongoDB unavailable for cleanup_expired_data: {e}; using in-memory")
-            cleanup_cache()
         except Exception as e:
             logger.error(f"Error cleaning up expired data in MongoDB: {e}")
     
     async def close(self):
         """Close MongoDB connection"""
-        if self.client and self._connected:
+        if self.client:
             self.client.close()
             self._connected = False
             logger.info("MongoDB connection closed")
@@ -351,9 +336,10 @@ class MongoDBManager:
 # Initialize MongoDB manager
 db_manager = MongoDBManager()
 
-# Fallback in-memory storage
+# Fallback in-memory storage (for when MongoDB is not available)
 book_cache = {}
 search_cache = {}
+cache_counter = 0
 user_ids = set()
 
 class BotStats:
@@ -409,7 +395,7 @@ broadcast_limiter = RateLimiter(max_requests=1, time_window=300)
 
 class zLibrarySearch:
     def __init__(self):
-        self.base_url = ZLIB_URL  # Configurable via environment variable
+        self.base_url = "https://z-lib.is"
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
@@ -418,7 +404,7 @@ class zLibrarySearch:
     async def search_books(self, query: str, limit: int = 10, page: int = 1) -> List[dict]:
         try:
             if not self.rate_limiter.is_allowed(hash(query)):
-                logger.warning("Z-Library rate limit exceeded for query: %s", query)
+                logger.warning("Z-Library rate limit exceeded")
                 return []
             
             search_url = f"{self.base_url}/s/{quote(query)}"
@@ -431,13 +417,13 @@ class zLibrarySearch:
             return await self._parse_search_results(response, limit)
             
         except Exception as e:
-            logger.error(f"Z-Library search error for query '{query}': {e}")
+            logger.error(f"Z-Library search error: {e}")
             return []
             
     async def get_download_info(self, book_url: str) -> Optional[dict]:
         try:
             if not self.rate_limiter.is_allowed(hash(book_url)):
-                logger.warning("Z-Library download rate limit exceeded for URL: %s", book_url)
+                logger.warning("Z-Library download rate limit exceeded")
                 return None
                 
             response = await self._make_request(book_url)
@@ -447,7 +433,7 @@ class zLibrarySearch:
             return await self._parse_download_info(response)
             
         except Exception as e:
-            logger.error(f"Z-Library download info error for URL '{book_url}': {e}")
+            logger.error(f"Z-Library download info error: {e}")
             return None
             
     async def _make_request(self, url: str, params: dict = None) -> Optional[str]:
@@ -475,19 +461,23 @@ class zLibrarySearch:
         books = []
         try:
             soup = BeautifulSoup(html_content, 'html.parser')
+            # Updated selectors for Z-Library
             book_items = soup.select('.resItemBox, .bookRow, .itemBox')[:limit]
             
             for item in book_items:
                 try:
+                    # Try multiple selectors for title
                     title_elem = (item.select_one('.bookTitle a') or 
                                 item.select_one('.title a') or 
                                 item.select_one('h3 a') or
                                 item.select_one('[data-toggle*="title"]'))
                     
+                    # Try multiple selectors for author
                     author_elem = (item.select_one('.authors') or 
                                  item.select_one('.author') or
                                  item.select_one('[data-toggle*="author"]'))
                     
+                    # Extract other information
                     year_elem = item.select_one('.property_year, .year')
                     lang_elem = item.select_one('.property_language, .language')
                     format_elem = item.select_one('.property_format, .format')
@@ -539,9 +529,14 @@ class zLibrarySearch:
                 'description': None
             }
             
+            # Extract format information
             format_elements = soup.select('.property_format, .format')
-            info['formats'] = [fmt.get_text(strip=True) for fmt in format_elements] or ['PDF']
+            if format_elements:
+                info['formats'] = [fmt.get_text(strip=True) for fmt in format_elements]
+            else:
+                info['formats'] = ['PDF']
             
+            # Extract other properties
             size_elem = soup.select_one('.property_size, .size')
             if size_elem:
                 info['size'] = size_elem.get_text(strip=True)
@@ -558,6 +553,7 @@ class zLibrarySearch:
             if desc_elem:
                 info['description'] = self._truncate_description(desc_elem.get_text(strip=True), 500)
             
+            # Look for download link
             download_elem = (soup.select_one('a[href*="/dl/"]') or 
                            soup.select_one('a[href*="download"]') or
                            soup.select_one('.btn-primary[href]'))
@@ -596,7 +592,7 @@ class eBookDownloader:
             async with aiohttp.ClientSession(headers=self.headers, timeout=timeout) as session:
                 params = {
                     'search': query,
-                    'page_size': min(limit, 32),
+                    'page_size': min(limit, 32),  # Gutenberg API limit
                     'page': page
                 }
                 async with session.get("https://gutendex.com/books/", params=params) as response:
@@ -608,9 +604,11 @@ class eBookDownloader:
                     books = []
                     
                     for book in data.get('results', []):
+                        # Get the best download format
                         formats = book.get('formats', {})
                         download_count = book.get('download_count', 0)
                         
+                        # Prefer EPUB, then PDF, then HTML
                         download_url = None
                         file_format = 'Unknown'
                         if 'application/epub+zip' in formats:
@@ -656,7 +654,7 @@ class eBookDownloader:
                 params = {
                     'q': f'title:({query}) AND mediatype:texts AND format:PDF',
                     'fl': 'identifier,title,creator,description,language,format,size,isbn,year,date',
-                    'rows': min(limit, 50),
+                    'rows': min(limit, 50),  # Archive.org limit
                     'page': page,
                     'output': 'json'
                 }
@@ -669,11 +667,13 @@ class eBookDownloader:
                     books = []
                     
                     for doc in data.get('response', {}).get('docs', []):
+                        # Handle list or string values
                         title = self._extract_value(doc.get('title', 'Unknown'))
                         author = self._extract_value(doc.get('creator', 'Unknown'))
                         language = self._extract_value(doc.get('language', 'Unknown'))
                         year = self._extract_value(doc.get('year') or doc.get('date', 'Unknown'))
                         
+                        # Calculate file size
                         size = doc.get('size', 0)
                         if isinstance(size, str) and size.isdigit():
                             size = int(size)
@@ -718,15 +718,21 @@ class eBookDownloader:
         if not description or description == 'Unknown':
             return 'No description available'
         
+        # Remove extra whitespace and newlines
         description = ' '.join(description.split())
+        
+        # Truncate if too long
         if len(description) > max_length:
             description = description[:max_length] + '...'
+            
         return description
     
     async def search_all_sources(self, query: str, limit: int = 10, page: int = 1) -> List[dict]:
         try:
+            # Distribute search across sources
             per_source_limit = max(3, limit // 3)
             
+            # Run searches concurrently with timeout
             tasks = [
                 asyncio.wait_for(self.search_project_gutenberg(query, per_source_limit, page), timeout=20),
                 asyncio.wait_for(self.search_internet_archive(query, per_source_limit, page), timeout=20),
@@ -735,15 +741,16 @@ class eBookDownloader:
             
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
+            # Combine valid results
             all_books = []
-            source_names = ['Project Gutenberg', 'Internet Archive', 'Z-Library']
             for i, result in enumerate(results):
                 if isinstance(result, Exception):
+                    source_names = ['Project Gutenberg', 'Internet Archive', 'Z-Library']
                     logger.error(f"Error searching {source_names[i]}: {result}")
                 elif isinstance(result, list):
                     all_books.extend(result)
             
-            return all_books[:limit]
+            return all_books[:limit]  # Limit final results
             
         except Exception as e:
             logger.error(f"Error searching all sources: {e}")
@@ -752,13 +759,14 @@ class eBookDownloader:
     async def get_download_link(self, book_id: str, source: str) -> Optional[str]:
         try:
             if source == 'gutenberg':
+                # Try different formats
                 formats = [
                     f"https://www.gutenberg.org/ebooks/{book_id}.epub.images",
                     f"https://www.gutenberg.org/ebooks/{book_id}.epub.noimages",
                     f"https://www.gutenberg.org/files/{book_id}/{book_id}-pdf.pdf",
                     f"https://www.gutenberg.org/files/{book_id}/{book_id}-h.htm"
                 ]
-                return formats[0]
+                return formats[0]  # Return EPUB as default
                 
             elif source == 'archive':
                 return f"https://archive.org/download/{book_id}/{book_id}.pdf"
@@ -768,7 +776,7 @@ class eBookDownloader:
                     info = await self.zlibrary.get_download_info(book_id)
                     if info and info.get('download_url'):
                         return info['download_url']
-                return book_id
+                return book_id  # Return the URL as-is
                 
             return None
             
@@ -832,8 +840,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username
     first_name = update.effective_user.first_name
     
+    # Add user to database
     await db_manager.add_user(user_id, username, first_name)
-    user_ids.add(user_id)
+    user_ids.add(user_id)  # Also add to in-memory set as fallback
     
     welcome_text = """
 📚 *Welcome to Free eBooks Downloader Bot!*
@@ -879,7 +888,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 *How to use:*
 1️⃣ Use `/search` followed by the book title
 2️⃣ View details with ✅ Preview/Details
-3️⃣ Navigate with Previous/Next buttons
+3️⃣ Navigate with Next/Previous buttons
 4️⃣ Click book title to get download link
 
 *Supported formats:*
@@ -947,6 +956,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stats = await bot_stats.get_stats()
         remaining = await db_manager.get_remaining_requests(user_id) if db_manager._connected else rate_limiter.remaining_requests(user_id)
         
+        # Check source health
         health_check_msg = await update.message.reply_text("🔍 Checking source availability...")
         health = await downloader.check_health()
         
@@ -993,6 +1003,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
+    # Check rate limit using MongoDB or fallback
     rate_allowed = await db_manager.check_rate_limit(user_id, 1, 300) if db_manager._connected else broadcast_limiter.is_allowed(user_id)
     
     if not rate_allowed:
@@ -1010,13 +1021,14 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     message = ' '.join(context.args)
-    if len(message) > 4000:
+    if len(message) > 4000:  # Leave room for formatting
         await update.message.reply_text(
             "❌ Message is too long (max 4000 characters). Please shorten it.",
             parse_mode='Markdown'
         )
         return
     
+    # Get user IDs from MongoDB or fallback
     all_user_ids = await db_manager.get_all_user_ids() if db_manager._connected else list(user_ids)
     
     broadcast_msg = await update.message.reply_text(
@@ -1036,10 +1048,11 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 disable_web_page_preview=True
             )
             success_count += 1
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.05)  # Small delay to avoid rate limits
         except Exception as e:
             logger.error(f"Failed to send broadcast to user {uid}: {e}")
             fail_count += 1
+            # Remove user if they blocked the bot
             if "bot was blocked" in str(e).lower():
                 user_ids.discard(uid)
     
@@ -1049,13 +1062,16 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global cache_counter
     user_id = update.effective_user.id
     username = update.effective_user.username
     first_name = update.effective_user.first_name
     
+    # Add user to database
     await db_manager.add_user(user_id, username, first_name)
     user_ids.add(user_id)
     
+    # Check rate limit using MongoDB or fallback
     rate_allowed = await db_manager.check_rate_limit(user_id) if db_manager._connected else rate_limiter.is_allowed(user_id)
     
     if not rate_allowed:
@@ -1105,6 +1121,7 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
     
+    # Send search message
     if is_callback:
         search_msg = await callback_query.edit_message_text(
             f"🔍 Searching for '*{query}*' (Page {page})...", 
@@ -1117,29 +1134,36 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
     try:
+        # Clean up expired data
         if db_manager._connected:
             await db_manager.cleanup_expired_data()
         else:
             cleanup_cache()
         
-        cache_key = f"query:{query}:page:{page}:{int(time.time() // 1800)}"
+        # Check cache first
+        cache_key = f"query:{query}:page:{page}"
         results = await db_manager.get_cached_search_results(cache_key) if db_manager._connected else None
         
-        if not results and not db_manager._connected:
-            cached = search_cache.get(cache_key)
-            if cached and cached['timestamp'] + 1800 > time.time():
-                results = cached['results']
-                logger.info(f"Using in-memory cached results for query: {query}, page: {page}")
+        if not results:
+            # Fallback to in-memory cache if MongoDB cache is empty
+            if not db_manager._connected:
+                cached = search_cache.get(cache_key)
+                if cached and cached['timestamp'] + 1800 > time.time():  # 30 minutes cache
+                    results = cached['results']
+                    logger.info(f"Using in-memory cached results for query: {query}, page: {page}")
         
         if not results:
             if not is_callback:
+                # Increment search count
                 if db_manager._connected:
                     await db_manager.increment_search_count()
                 else:
                     bot_stats.increment_searches()
             
+            # Search all sources
             results = await downloader.search_all_sources(query, limit=36, page=page)
             
+            # Cache results
             if db_manager._connected:
                 await db_manager.cache_search_results(cache_key, results)
             else:
@@ -1163,10 +1187,12 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await search_msg.edit_text(no_results_msg, parse_mode='Markdown')
             return
         
+        # Sort results by download count (for Gutenberg) and relevance
         results.sort(key=lambda x: (x.get('download_count', 0), x.get('title', '').lower().count(query.lower())), reverse=True)
         
-        items_per_page = 6
-        total_pages = (len(results) + items_per_page - 1) // items_per_page
+        # Pagination
+        items_per_page = 6  # Reduced for better display
+        total_pages = max(1, (len(results) + items_per_page - 1) // items_per_page)
         start_idx = (page - 1) * items_per_page
         end_idx = start_idx + items_per_page
         page_results = results[start_idx:end_idx]
@@ -1178,6 +1204,7 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
+        # Build keyboard
         keyboard = []
         for book in page_results:
             source_emoji = {
@@ -1186,13 +1213,16 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'zlibrary': '📱'
             }.get(book['source'], '📘')
             
+            # Truncate long titles and authors
             title = book['title'][:40] + "..." if len(book['title']) > 40 else book['title']
             author = book.get('author', 'Unknown')[:25] + "..." if len(book.get('author', 'Unknown')) > 25 else book.get('author', 'Unknown')
             
-            timestamp = str(int(time.time()))
-            book_cache_key = f"b_{md5(f'{timestamp}_{book['title']}_{book['source']}'.encode()).hexdigest()[:8]}"
-            preview_cache_key = f"p_{md5(f'{timestamp}_{book['title']}_{book['source']}'.encode()).hexdigest()[:8]}"
+            # Create cache keys
+            book_cache_key = f"b_{md5(f'{cache_counter}_{book["title"]}_{book["source"]}'.encode()).hexdigest()[:8]}"
+            preview_cache_key = f"p_{md5(f'{cache_counter}_{book["title"]}_{book["source"]}'.encode()).hexdigest()[:8]}"
+            cache_counter += 1
             
+            # Store book data in cache (always use in-memory for this temporary data)
             book_cache[book_cache_key] = {
                 'data': {
                     'source': book['source'],
@@ -1206,10 +1236,12 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'timestamp': time.time()
             }
             
+            # Create button text with book info
             button_text = f"{source_emoji} {title}"
             if author != 'Unknown':
                 button_text += f"\n👤 {author}"
             
+            # Add format and size info
             format_info = []
             if book.get('format') and book['format'] != 'Unknown':
                 format_info.append(f"📄 {book['format']}")
@@ -1221,15 +1253,17 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if format_info:
                 button_text += f"\n{' | '.join(format_info)}"
             
+            # Add buttons
             keyboard.append([InlineKeyboardButton(button_text, callback_data=book_cache_key)])
             keyboard.append([InlineKeyboardButton("✅ Preview/Details", callback_data=preview_cache_key)])
         
+        # Add pagination buttons
         pagination_buttons = []
         if page > 1:
             pagination_buttons.append(
                 InlineKeyboardButton("⬅️ Previous", callback_data=f"prev_page:{query}:{page}")
             )
-        if page < total_pages:
+        if len(page_results) == items_per_page:  # Assume more pages exist
             pagination_buttons.append(
                 InlineKeyboardButton("➡️ Next", callback_data=f"next_page:{query}:{page}")
             )
@@ -1239,6 +1273,7 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
+        # Create result message
         result_text = f"📚 Found *{len(results)}* books for '*{query}*'"
         if total_pages > 1:
             result_text += f" (Page {min(page, total_pages)}/{total_pages})"
@@ -1259,6 +1294,7 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await search_msg.edit_text(error_msg, parse_mode='Markdown')
         except Exception:
+            # If edit fails, send new message
             if not is_callback:
                 await update.message.reply_text(error_msg, parse_mode='Markdown')
 
@@ -1296,6 +1332,7 @@ async def preview_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'zlibrary': '📱'
         }.get(book['source'], '📘')
         
+        # Get additional info for Z-Library books
         additional_info = ""
         if book['source'] == 'zlibrary' and book.get('url'):
             try:
@@ -1309,6 +1346,7 @@ async def preview_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"Error fetching Z-Library details: {e}")
         
+        # Format the preview message
         message = f"""
 {source_emoji} *{book['title']}*
 
@@ -1324,6 +1362,7 @@ async def preview_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
 {book.get('description', 'No description available')}{additional_info}
         """
         
+        # Create back button
         keyboard = [[InlineKeyboardButton("🔙 Back to Search Results", callback_data="back_to_search")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -1354,6 +1393,7 @@ async def download_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         callback_data = query.data
         
+        # Handle special cases
         if callback_data == "back_to_search":
             await query.edit_message_text(
                 "🔍 Please start a new search using `/search <book title>`\n\n"
@@ -1370,6 +1410,7 @@ async def download_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await preview_book(update, context)
             return
         
+        # Handle book download
         book_entry = book_cache.get(callback_data)
         if not book_entry:
             await query.edit_message_text(
@@ -1383,8 +1424,10 @@ async def download_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
         book_id = book_data['id']
         book_info = book_data['info']
         
+        # Show preparing message
         await query.edit_message_text("📥 Preparing your download link...")
         
+        # Get download link
         download_link = await downloader.get_download_link(book_id, source)
         
         if download_link:
@@ -1437,6 +1480,7 @@ async def download_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 disable_web_page_preview=True
             )
             
+            # Remove from cache to save memory
             if callback_data in book_cache:
                 del book_cache[callback_data]
                 
@@ -1466,10 +1510,17 @@ async def download_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle non-command messages"""
     user_id = update.effective_user.id
+    username = update.effective_user.username
+    first_name = update.effective_user.first_name
+    
+    await db_manager.add_user(user_id, username, first_name)
     user_ids.add(user_id)
+    
     text = update.message.text.lower().strip()
     
+    # Common keywords that suggest user wants to search
     search_keywords = ['search', 'find', 'book', 'download', 'ebook', 'pdf', 'epub']
     help_keywords = ['help', 'how', 'command', 'what', 'commands']
     
@@ -1491,12 +1542,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "👋 Hello! I'm your free eBooks downloader bot.\n\n"
             "🔍 Use `/search <book title>` to find books\n"
-            "ℹ️ Use `/help` to see all commands\n"
+            "❓ Use `/help` to see all commands\n"
             "📊 Use `/status` to check bot status\n\n"
             "*Example:* `/search The Great Gatsby`"
         )
 
+# Web server handlers
 async def webhook_handler(request):
+    """Handle incoming webhook requests from Telegram"""
     try:
         body = await request.json()
         update = Update.de_json(body, application.bot)
@@ -1508,51 +1561,95 @@ async def webhook_handler(request):
         return web.Response(status=500, text="Internal Server Error")
 
 async def health_check(request):
-    return web.Response(text="OK", status=200)
+    """Health check endpoint for monitoring"""
+    try:
+        # Perform basic health checks
+        current_time = datetime.now()
+        uptime = current_time - bot_stats.start_time
+        stats = await bot_stats.get_stats()
+        
+        health_data = {
+            'status': 'healthy',
+            'uptime_seconds': uptime.total_seconds(),
+            'search_count': stats['search_count'],
+            'user_count': stats['user_count'],
+            'cache_size': stats['cache_size'],
+            'mongodb_connected': stats['mongodb_connected'],
+            'timestamp': current_time.isoformat()
+        }
+        
+        return web.json_response(health_data, status=200)
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return web.Response(text="OK", status=200)  # Simple OK for basic monitoring
 
-async def setup_webhook(application, retries=3, delay=5):
-    """Set up the Telegram webhook with retries"""
-    for attempt in range(retries):
-        try:
-            webhook_info = await application.bot.get_webhook_info()
-            if webhook_info.url != WEBHOOK_URL:
-                await application.bot.set_webhook(url=WEBHOOK_URL)
-                logger.info(f"Webhook set to {WEBHOOK_URL}")
-            else:
-                logger.info(f"Webhook already set to {WEBHOOK_URL}")
-            return True
-        except Exception as e:
-            logger.error(f"Attempt {attempt + 1}/{retries} to set webhook failed: {e}")
-            if attempt < retries - 1:
-                await asyncio.sleep(delay * (2 ** attempt))  # Exponential backoff
-    logger.error("Failed to set webhook after all retries")
-    return False
+# Webhook setup
+async def setup_webhook(application):
+    """Set up the Telegram webhook"""
+    try:
+        webhook_info = await application.bot.get_webhook_info()
+        if webhook_info.url != WEBHOOK_URL:
+            await application.bot.set_webhook(url=WEBHOOK_URL)
+            logger.info(f"Webhook set to {WEBHOOK_URL}")
+        else:
+            logger.info(f"Webhook already set to {WEBHOOK_URL}")
+    except Exception as e:
+        logger.error(f"Failed to set webhook: {e}")
+        raise
 
-async def keep_alive():
+# Keep-alive functionality
+def keep_alive():
     """Keep the service alive on free hosting platforms"""
-    while True:
-        try:
-            timeout = aiohttp.ClientTimeout(total=30)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(f"{BASE_URL}/health") as response:
-                    if response.status == 200:
-                        logger.info("Keep-alive ping successful")
-                    else:
-                        logger.warning(f"Keep-alive ping failed: {response.status}")
-        except Exception as e:
-            logger.error(f"Keep-alive ping error: {e}")
-        await asyncio.sleep(300)
+    def ping():
+        while True:
+            try:
+                async def async_ping():
+                    try:
+                        timeout = aiohttp.ClientTimeout(total=30)
+                        async with aiohttp.ClientSession(timeout=timeout) as session:
+                            async with session.get(f"{BASE_URL}/health") as response:
+                                if response.status == 200:
+                                    logger.info("Keep-alive ping successful")
+                                else:
+                                    logger.warning(f"Keep-alive ping failed: {response.status}")
+                    except Exception as e:
+                        logger.error(f"Keep-alive ping error: {e}")
+                
+                # Run the async ping
+                asyncio.run(async_ping())
+                
+                # Wait 5 minutes before next ping
+                time.sleep(300)
+                
+            except Exception as e:
+                logger.error(f"Keep-alive thread error: {e}")
+                time.sleep(300)  # Wait before retrying
+    
+    # Start keep-alive thread
+    thread = Thread(target=ping, daemon=True)
+    thread.start()
+    logger.info("Keep-alive thread started")
+
+# Global variable for application
+application = None
 
 async def main():
+    """Main application entry point"""
     global application
     
     try:
-        # Initialize MongoDB
-        if not await db_manager.connect():
-            logger.warning("Running with in-memory storage due to MongoDB connection failure")
+        # Initialize MongoDB connection
+        logger.info("Initializing MongoDB connection...")
+        db_connected = await db_manager.connect()
+        if db_connected:
+            logger.info("✅ MongoDB Atlas connected successfully")
+        else:
+            logger.warning("⚠️ MongoDB connection failed - using in-memory storage")
         
+        # Initialize the application
         application = Application.builder().token(BOT_TOKEN).build()
         
+        # Add handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("about", about_command))
@@ -1562,6 +1659,7 @@ async def main():
         application.add_handler(CallbackQueryHandler(download_book, pattern="^b_|^p_|^back_to_search|^next_page:|^prev_page:"))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         
+        # Create web application
         app = web.Application()
         app.add_routes([
             web.post(WEBHOOK_PATH, webhook_handler),
@@ -1569,15 +1667,15 @@ async def main():
             web.get('/', lambda request: web.Response(text="eBook Downloader Bot is running!", status=200))
         ])
         
-        asyncio.create_task(keep_alive())
+        # Start keep-alive service
+        keep_alive()
         
+        # Initialize Telegram application
         await application.initialize()
-        if not await setup_webhook(application):
-            logger.critical("Webhook setup failed; exiting")
-            return
-        
+        await setup_webhook(application)
         await application.start()
         
+        # Start web server
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, '0.0.0.0', PORT)
@@ -1586,21 +1684,26 @@ async def main():
         logger.info(f"Bot started successfully on port {PORT}")
         logger.info(f"Webhook URL: {WEBHOOK_URL}")
         logger.info(f"Health check: {BASE_URL}/health")
+        logger.info(f"MongoDB status: {'Connected' if db_manager._connected else 'Disconnected'}")
         
+        # Keep the application running
         try:
             while True:
-                await asyncio.sleep(3600)
+                await asyncio.sleep(3600)  # Sleep for 1 hour
+                # Clean up expired data
                 if db_manager._connected:
                     await db_manager.cleanup_expired_data()
                 else:
                     cleanup_cache()
-        except (KeyboardInterrupt, asyncio.CancelledError):
+        except KeyboardInterrupt:
             logger.info("Received shutdown signal")
         finally:
+            # Cleanup
             await runner.cleanup()
             await application.stop()
             await application.shutdown()
-            await db_manager.close()
+            if db_manager._connected:
+                await db_manager.close()
             logger.info("Bot stopped successfully")
             
     except Exception as e:
