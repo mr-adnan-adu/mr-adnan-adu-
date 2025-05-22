@@ -3,27 +3,33 @@ services:
     name: ebook-downloader-bot
     env: python
     plan: free
-    region: oregon
-    buildCommand: |
-      pip install -r requirements.txt
-    startCommand: |
-      python main.py
+    buildCommand: pip install -r requirements.txt
+    startCommand: python webhook.py
     envVars:
       - key: BOT_TOKEN
         sync: false
       - key: BASE_URL
-        value: https://ebook-downloader-bot.onrender.com
-      - key: PORT
-        value: 8080
+        sync: false
       - key: ADMIN_IDS
         sync: false
       - key: MONGODB_URI
         sync: false
       - key: MONGODB_DB_NAME
-        value: ebook_bot
-      - key: ZLIB_URL
-        value: https://z-lib.is
+        value: "ebook_bot"
+      - key: PORT
+        value: "10000"
       - key: PYTHON_VERSION
-        value: 3.10
+        value: "3.11.7"
     healthCheckPath: /health
+    disk:
+      name: ebook-bot-disk
+      mountPath: /opt/render/project/src
+      sizeGB: 1
     autoDeploy: true
+    preDeployCommand: |
+      echo "Starting deployment of eBook Downloader Bot..."
+      echo "Python version: $(python --version)"
+      echo "Installing dependencies..."
+    postDeployCommand: |
+      echo "Deployment completed successfully!"
+      echo "Bot webhook URL: ${BASE_URL}/webhook/${BOT_TOKEN}"
