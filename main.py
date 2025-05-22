@@ -4,7 +4,7 @@ import aiohttp
 from urllib.parse import quote
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
-import asyncio
+from aiohttp import web
 from threading import Thread
 import time
 from collections import defaultdict
@@ -12,6 +12,8 @@ from hashlib import md5
 from typing import List, Optional
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
+import json
+import asyncio
 
 # Configure logging
 logging.basicConfig(
@@ -23,9 +25,11 @@ logger = logging.getLogger(__name__)
 # Bot configuration
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 PORT = int(os.getenv('PORT', 8080))
-BASE_URL = os.getenv('BASE_URL', 'https://your-bot-url.onrender.com')  # Replace with your app's URL
-ADMIN_IDS = os.getenv('ADMIN_IDS', '').split(',')  # Comma-separated Telegram user IDs
-ADMIN_IDS = [int(admin_id) for admin_id in ADMIN_IDS if admin_id.isdigit()]  # Convert to integers
+BASE_URL = os.getenv('BASE_URL', 'https://your-bot-url.onrender.com')
+ADMIN_IDS = os.getenv('ADMIN_IDS', '').split(',')
+ADMIN_IDS = [int(admin_id) for admin_id in ADMIN_IDS if admin_id.isdigit()]
+WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
+WEBHOOK_URL = f"{BASE_URL}{WEBHOOK_PATH}"
 
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN environment variable is required")
@@ -33,10 +37,10 @@ if not ADMIN_IDS:
     logger.warning("No ADMIN_IDS set; /broadcast command will be disabled")
 
 # In-memory storage
-book_cache = {}  # {key: {'data': {...}, 'timestamp': float}}
-search_cache = {}  # {query:page: {'results': [...], 'timestamp': float, 'total': int}}
+book_cache = {}
+search_cache = {}
 cache_counter = 0
-user_ids = set()  # Track users who interact with the bot
+user_ids = set()
 
 class BotStats:
     def __init__(self):
@@ -82,19 +86,18 @@ class RateLimiter:
         self.requests[user_id] = [t for t in self.requests[user_id] if current_time - t < self.time_window]
         return max(0, self.max_requests - len(self.requests[user_id]))
 
-rate_limiter = RateLimiter(max_requests=5, time_window=60)  # 5 searches per minute
-broadcast_limiter = RateLimiter(max_requests=1, time_window=300)  # 1 broadcast every 5 minutes
+rate_limiter = RateLimiter(max_requests=5, time_window=60)
+broadcast_limiter = RateLimiter(max_requests=1, time_window=300)
 
 class zLibrarySearch:
     def __init__(self):
-        self.base_url = "https://z-lib.is"  # Note: URL may change
+        self.base_url = "https://z-lib.is"
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         self.rate_limiter = RateLimiter(max_requests=5, time_window=60)
         
     async def search_books(self, query: str, limit: int = 10, page: int = 1) -> List[dict]:
-        """Search for books on Z-Library"""
         try:
             if not self.rate_limiter.is_allowed(hash(query)):
                 logger.warning("Z-Library rate limit exceeded")
@@ -114,7 +117,6 @@ class zLibrarySearch:
             return []
             
     async def get_download_info(self, book_url: str) -> Optional[dict]:
-        """Get book download information"""
         try:
             if not self.rate_limiter.is_allowed(hash(book_url)):
                 logger.warning("Z-Library download rate limit exceeded")
@@ -131,7 +133,6 @@ class zLibrarySearch:
             return None
             
     async def _make_request(self, url: str, params: dict = None) -> Optional[str]:
-        """Make HTTP request with rate limiting"""
         try:
             async with aiohttp.ClientSession(headers=self.headers) as session:
                 async with session.get(url, params=params, timeout=10) as response:
@@ -145,7 +146,6 @@ class zLibrarySearch:
             return None
             
     async def _parse_search_results(self, html_content: str, limit: int) -> List[dict]:
-        """Parse search results from HTML"""
         books = []
         try:
             soup = BeautifulSoup(html_content, 'html.parser')
@@ -169,7 +169,7 @@ class zLibrarySearch:
                         'description': desc_elem.text.strip()[:200] + '...' if desc_elem and len(desc_elem.text.strip()) > 200 else desc_elem.text.strip() if desc_elem else 'No description available',
                         'url': self.base_url + title_elem['href'] if title_elem and title_elem.get('href') else None,
                         'source': 'zlibrary',
-                        'isbn': None  # Parsed in get_download_info
+                        'isbn': None
                     }
                     books.append(book)
                 except Exception as e:
@@ -180,7 +180,6 @@ class zLibrarySearch:
         return books
         
     async def _parse_download_info(self, html_content: str) -> Optional[dict]:
-        """Parse book download information"""
         try:
             soup = BeautifulSoup(html_content, 'html.parser')
             info = {
@@ -192,27 +191,21 @@ class zLibrarySearch:
                 'description': None
             }
             
-            # Parse available formats
             format_elements = soup.select('.property_format')
             info['formats'] = [fmt.text.strip() for fmt in format_elements] or ['Unknown']
             
-            # Parse file size
             size_elem = soup.select_one('.property_size')
             info['size'] = size_elem.text.strip() if size_elem else 'Unknown'
             
-            # Parse language
             lang_elem = soup.select_one('.property_language')
             info['language'] = lang_elem.text.strip() if lang_elem else 'Unknown'
             
-            # Parse ISBN
             isbn_elem = soup.select_one('.property_isbn')
             info['isbn'] = isbn_elem.text.strip() if isbn_elem else 'Unknown'
             
-            # Parse description
             desc_elem = soup.select_one('.description')
             info['description'] = desc_elem.text.strip()[:500] + '...' if desc_elem and len(desc_elem.text.strip()) > 500 else desc_elem.text.strip() if desc_elem else 'No description available'
             
-            # Parse download link
             download_elem = soup.select_one('a[href*="/dl/"]')
             if download_elem and download_elem.get('href'):
                 info['download_url'] = self.base_url + download_elem['href']
@@ -224,7 +217,6 @@ class zLibrarySearch:
             return None
     
     async def check_health(self) -> bool:
-        """Check if Z-Library is reachable"""
         try:
             async with aiohttp.ClientSession(headers=self.headers) as session:
                 async with session.get(self.base_url, timeout=5) as response:
@@ -240,7 +232,6 @@ class eBookDownloader:
         self.zlibrary = zLibrarySearch()
     
     async def search_project_gutenberg(self, query, limit=10, page=1):
-        """Search Project Gutenberg for free books"""
         try:
             async with aiohttp.ClientSession(headers=self.headers) as session:
                 async with session.get(
@@ -260,8 +251,8 @@ class eBookDownloader:
                             'author': ', '.join([author['name'] for author in book.get('authors', [])]) or 'Unknown',
                             'year': str(book.get('copyright_year', 'Unknown')),
                             'language': book.get('languages', ['Unknown'])[0],
-                            'format': 'EPUB',  # Gutenberg primarily offers EPUB
-                            'file_size': 'Approx. 500 KB',  # Approximation
+                            'format': 'EPUB',
+                            'file_size': 'Approx. 500 KB',
                             'description': book.get('summary', 'No description available')[:200] + '...' if book.get('summary') and len(book.get('summary')) > 200 else book.get('summary', 'No description available'),
                             'source': 'gutenberg',
                             'download_count': book.get('download_count', 0),
@@ -276,7 +267,6 @@ class eBookDownloader:
             return []
     
     async def search_internet_archive(self, query, limit=5, page=1):
-        """Search Internet Archive for free books"""
         try:
             async with aiohttp.ClientSession(headers=self.headers) as session:
                 async with session.get(
@@ -323,7 +313,6 @@ class eBookDownloader:
             return []
     
     async def search_all_sources(self, query: str, limit: int = 10, page: int = 1) -> List[dict]:
-        """Search across all sources"""
         try:
             gutenberg_task = self.search_project_gutenberg(query, limit // 3, page)
             archive_task = self.search_internet_archive(query, limit // 3, page)
@@ -335,7 +324,6 @@ class eBookDownloader:
             return []
     
     async def get_download_link(self, book_id: str, source: str) -> Optional[str]:
-        """Get download link based on source"""
         try:
             if source == 'gutenberg':
                 return f"https://www.gutenberg.org/ebooks/{book_id}.epub.images"
@@ -352,7 +340,6 @@ class eBookDownloader:
             return None
     
     async def check_health(self) -> dict:
-        """Check health of all sources"""
         async def check_gutenberg():
             try:
                 async with aiohttp.ClientSession(headers=self.headers) as session:
@@ -384,21 +371,17 @@ class eBookDownloader:
 downloader = eBookDownloader()
 
 def cleanup_cache():
-    """Remove expired cache entries (older than 1 hour)"""
     current_time = time.time()
-    # Clean book_cache
     expired_books = [k for k, v in book_cache.items() if current_time - v['timestamp'] > 3600]
     for k in expired_books:
         book_cache.pop(k, None)
-    # Clean search_cache
     expired_searches = [k for k, v in search_cache.items() if current_time - v['timestamp'] > 3600]
     for k in expired_searches:
         search_cache.pop(k, None)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a message when the command /start is issued."""
     user_id = update.effective_user.id
-    user_ids.add(user_id)  # Track user
+    user_ids.add(user_id)
     welcome_text = """
 📚 *Welcome to Free eBooks Downloader Bot!*
 
@@ -422,9 +405,8 @@ _Note: Some Z-Library downloads may require an account._
     await update.message.reply_text(welcome_text, parse_mode='Markdown')
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send help information."""
     user_id = update.effective_user.id
-    user_ids.add(user_id)  # Track user
+    user_ids.add(user_id)
     help_text = """
 📖 *eBooks Downloader Bot Help*
 
@@ -451,9 +433,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show information about the bot."""
     user_id = update.effective_user.id
-    user_ids.add(user_id)  # Track user
+    user_ids.add(user_id)
     about_text = """
 ℹ️ *About Free eBooks Downloader Bot*
 
@@ -483,9 +464,8 @@ Built with ❤️ for book lovers worldwide.
     await update.message.reply_text(about_text, parse_mode='Markdown')
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Display bot status and health"""
     user_id = update.effective_user.id
-    user_ids.add(user_id)  # Track user
+    user_ids.add(user_id)
     try:
         stats = bot_stats.get_stats()
         health = await downloader.check_health()
@@ -520,7 +500,6 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Broadcast a message to all users (admin only)"""
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
         await update.message.reply_text(
@@ -568,7 +547,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 disable_web_page_preview=True
             )
             success_count += 1
-            await asyncio.sleep(0.1)  # Avoid hitting Telegram rate limits
+            await asyncio.sleep(0.1)
         except Exception as e:
             logger.error(f"Failed to send broadcast to user {uid}: {e}")
             fail_count += 1
@@ -579,10 +558,9 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Search for books across all sources with pagination."""
     global cache_counter
     user_id = update.effective_user.id
-    user_ids.add(user_id)  # Track user
+    user_ids.add(user_id)
     if not rate_limiter.is_allowed(user_id):
         await update.message.reply_text(
             "⚠️ You're searching too quickly. Please wait a minute and try again.",
@@ -627,10 +605,8 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
         search_msg = await update.message.reply_text(f"🔍 Searching for '*{query}*'...", parse_mode='Markdown')
     
     try:
-        # Clean up cache
         cleanup_cache()
         
-        # Check cache for results
         cache_key = f"query:{query}:page:{page}"
         cached = search_cache.get(cache_key)
         
@@ -638,18 +614,15 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if cached and cached['timestamp'] + 3600 > time.time():
             results = cached['results']
         else:
-            # Increment search count (only for new searches)
             if not is_callback:
                 bot_stats.increment_searches()
             
-            # Search all sources
             results = await downloader.search_all_sources(query, limit=36, page=page)
             
-            # Cache results
             search_cache[cache_key] = {
                 'results': results,
                 'timestamp': time.time(),
-                'total': len(results)  # Approximate total
+                'total': len(results)
             }
         
         if not results:
@@ -659,10 +632,8 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # Sort by relevance (download count for Gutenberg, otherwise by order)
         results.sort(key=lambda x: x.get('download_count', 0), reverse=True)
         
-        # Paginate results (12 per page)
         items_per_page = 12
         total_pages = max(1, (len(results) + items_per_page - 1) // items_per_page)
         start_idx = (page - 1) * items_per_page
@@ -676,7 +647,6 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # Create inline keyboard with results and pagination
         keyboard = []
         for book in page_results:
             source_emoji = {
@@ -692,7 +662,6 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file_format = book.get('format', 'Unknown')
             file_size = book.get('file_size', 'Unknown')
             
-            # Cache book details
             book_cache_key = f"b_{md5(str(cache_counter).encode()).hexdigest()[:8]}"
             preview_cache_key = f"p_{md5(str(cache_counter).encode()).hexdigest()[:8]}"
             cache_counter += 1
@@ -709,18 +678,14 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'timestamp': time.time()
             }
             
-            # Button for selecting book
             button_text = (
                 f"{source_emoji} {title}\n"
                 f"👤 {author} ({year})\n"
                 f"🌐 {language} | 📄 {file_format} | 💾 {file_size}"
             )
             keyboard.append([InlineKeyboardButton(button_text, callback_data=book_cache_key)])
-            
-            # Preview button
             keyboard.append([InlineKeyboardButton("✅ Preview/Details", callback_data=preview_cache_key)])
         
-        # Add pagination buttons
         pagination_buttons = []
         if page > 1:
             pagination_buttons.append(
@@ -748,10 +713,9 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def preview_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle book preview requests."""
     query = update.callback_query
     user_id = update.effective_user.id
-    user_ids.add(user_id)  # Track user
+    user_ids.add(user_id)
     await query.answer()
     
     try:
@@ -771,7 +735,6 @@ async def preview_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'zlibrary': 'Z-Library'
         }.get(book['source'], 'Unknown Source')
         
-        # Fetch additional details for Z-Library if needed
         if book['source'] == 'zlibrary' and book.get('isbn') == 'Unknown':
             download_info = await downloader.zlibrary.get_download_info(book.get('url'))
             if download_info:
@@ -808,10 +771,9 @@ async def preview_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def download_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle book download requests and pagination."""
     query = update.callback_query
     user_id = update.effective_user.id
-    user_ids.add(user_id)  # Track user
+    user_ids.add(user_id)
     await query.answer()
     
     try:
@@ -872,7 +834,6 @@ async def download_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=reply_markup,
                 disable_web_page_preview=True
             )
-            # Clean up cache
             del book_cache[callback_data]
         else:
             await query.edit_message_text(
@@ -888,9 +849,8 @@ async def download_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle non-command messages."""
     user_id = update.effective_user.id
-    user_ids.add(user_id)  # Track user
+    user_ids.add(user_id)
     text = update.message.text.lower()
     
     if any(keyword in text for keyword in ['search', 'find', 'book', 'download']):
@@ -907,8 +867,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "👋 Hi! I'm your free eBooks downloader bot.\n\nUse `/help` to see all available commands or `/search` to find books!"
         )
 
+async def webhook_handler(request):
+    try:
+        update = Update.de_json(await request.json(), application.bot)
+        if update:
+            await application.process_update(update)
+        return web.Response(status=200)
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+        return web.Response(status=500)
+
+async def health_check(request):
+    return web.Response(text="OK", status=200)
+
+async def setup_webhook(application):
+    try:
+        await application.bot.set_webhook(url=WEBHOOK_URL)
+        logger.info(f"Webhook set to {WEBHOOK_URL}")
+    except Exception as e:
+        logger.error(f"Failed to set webhook: {e}")
+
 def keep_alive():
-    """Keep the service alive by making periodic HTTP requests."""
     def ping():
         while True:
             try:
@@ -921,7 +900,7 @@ def keep_alive():
                                 logger.warning(f"Keep-alive ping failed: {response.status}")
                 
                 asyncio.run(async_ping())
-                time.sleep(300)  # Ping every 5 minutes
+                time.sleep(300)
             except Exception as e:
                 logger.error(f"Keep-alive error: {e}")
                 time.sleep(300)
@@ -930,10 +909,10 @@ def keep_alive():
     thread.daemon = True
     thread.start()
 
-def main():
-    """Start the bot."""
-    keep_alive()
+async def main():
+    global application
     application = Application.builder().token(BOT_TOKEN).build()
+    
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("about", about_command))
@@ -942,11 +921,30 @@ def main():
     application.add_handler(CommandHandler("search", search_books))
     application.add_handler(CallbackQueryHandler(download_book, pattern="^b_|^p_|^back_to_search|^next_page:|^prev_page:"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    logger.info("Starting bot...")
-    application.run_polling(
-        allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True
-    )
+    
+    app = web.Application()
+    app.add_routes([
+        web.post(WEBHOOK_PATH, webhook_handler),
+        web.get('/health', health_check)
+    ])
+    
+    keep_alive()
+    await application.initialize()
+    await setup_webhook(application)
+    await application.start()
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', PORT)
+    await site.start()
+    
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except KeyboardInterrupt:
+        await runner.cleanup()
+        await application.stop()
+        await application.shutdown()
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
