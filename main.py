@@ -12,10 +12,10 @@ from hashlib import md5
 from typing import List, Optional
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
-import json
 import asyncio
+import aiohttp.client_exceptions
 
-# Configure logging
+# Configure logging with more detail
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -91,6 +91,7 @@ broadcast_limiter = RateLimiter(max_requests=1, time_window=300)
 
 class zLibrarySearch:
     def __init__(self):
+        # Note: z-lib.is may change or be blocked; verify the current domain before deployment
         self.base_url = "https://z-lib.is"
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -100,7 +101,7 @@ class zLibrarySearch:
     async def search_books(self, query: str, limit: int = 10, page: int = 1) -> List[dict]:
         try:
             if not self.rate_limiter.is_allowed(hash(query)):
-                logger.warning("Z-Library rate limit exceeded")
+                logger.warning("Z-Library rate limit exceeded for query: %s", query)
                 return []
             
             search_url = f"{self.base_url}/s/{quote(query)}"
@@ -113,13 +114,13 @@ class zLibrarySearch:
             return await self._parse_search_results(response, limit)
             
         except Exception as e:
-            logger.error(f"Z-Library search error: {e}")
+            logger.error(f"Z-Library search error for query '{query}': {e}")
             return []
             
     async def get_download_info(self, book_url: str) -> Optional[dict]:
         try:
             if not self.rate_limiter.is_allowed(hash(book_url)):
-                logger.warning("Z-Library download rate limit exceeded")
+                logger.warning("Z-Library download rate limit exceeded for URL: %s", book_url)
                 return None
                 
             response = await self._make_request(book_url)
@@ -129,7 +130,7 @@ class zLibrarySearch:
             return await self._parse_download_info(response)
             
         except Exception as e:
-            logger.error(f"Z-Library download info error: {e}")
+            logger.error(f"Z-Library download info error for URL '{book_url}': {e}")
             return None
             
     async def _make_request(self, url: str, params: dict = None) -> Optional[str]:
@@ -138,11 +139,11 @@ class zLibrarySearch:
                 async with session.get(url, params=params, timeout=10) as response:
                     if response.status == 200:
                         return await response.text()
-                    logger.warning(f"Z-Library request failed with status {response.status}")
+                    logger.warning(f"Z-Library request to {url} failed with status {response.status}")
                     return None
                     
         except aiohttp.ClientError as e:
-            logger.error(f"Z-Library request error: {e}")
+            logger.error(f"Z-Library request error for {url}: {e}")
             return None
             
     async def _parse_search_results(self, html_content: str, limit: int) -> List[dict]:
@@ -173,7 +174,7 @@ class zLibrarySearch:
                     }
                     books.append(book)
                 except Exception as e:
-                    logger.error(f"Z-Library parse error: {e}")
+                    logger.error(f"Z-Library parse error for item: {e}")
                     continue
         except Exception as e:
             logger.error(f"Z-Library parse results error: {e}")
@@ -231,6 +232,8 @@ class eBookDownloader:
         }
         self.zlibrary = zLibrarySearch()
     
+    cache
+
     async def search_project_gutenberg(self, query, limit=10, page=1):
         try:
             async with aiohttp.ClientSession(headers=self.headers) as session:
@@ -317,8 +320,14 @@ class eBookDownloader:
             gutenberg_task = self.search_project_gutenberg(query, limit // 3, page)
             archive_task = self.search_internet_archive(query, limit // 3, page)
             zlibrary_task = self.zlibrary.search_books(query, limit // 3, page)
-            results = await asyncio.gather(gutenberg_task, archive_task, zlibrary_task)
-            return results[0] + results[1] + results[2]
+            results = await asyncio.gather(gutenberg_task, archive_task, zlibrary_task, return_exceptions=True)
+            combined_results = []
+            for result in results:
+                if isinstance(result, list):
+                    combined_results.extend(result)
+                else:
+                    logger.warning(f"Search task failed: {result}")
+            return combined_results
         except Exception as e:
             logger.error(f"Error searching all sources: {e}")
             return []
@@ -336,7 +345,7 @@ class eBookDownloader:
                 return None
             return None
         except Exception as e:
-            logger.error(f"Error getting download link: {e}")
+            logger.error(f"Error getting download link for {source}/{book_id}: {e}")
             return None
     
     async def check_health(self) -> dict:
@@ -359,12 +368,13 @@ class eBookDownloader:
         gutenberg, archive, zlibrary = await asyncio.gather(
             check_gutenberg(),
             check_archive(),
-            self.zlibrary.check_health()
+            self.zlibrary.check_health(),
+            return_exceptions=True
         )
         return {
-            'gutenberg': gutenberg,
-            'archive': archive,
-            'zlibrary': zlibrary
+            'gutenberg': gutenberg if not isinstance(gutenberg, Exception) else False,
+            'archive': archive if not isinstance(archive, Exception) else False,
+            'zlibrary': zlibrary if not isinstance(zlibrary, Exception) else False
         }
 
 # Initialize downloader
@@ -493,7 +503,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(status_text, parse_mode='Markdown')
     
     except Exception as e:
-        logger.error(f"Status command error: {e}")
+        logger.error(f"Status command error for user {user_id}: {e}")
         await update.message.reply_text(
             "❌ Error retrieving bot status. Please try again later.",
             parse_mode='Markdown'
@@ -706,7 +716,7 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
     except Exception as e:
-        logger.error(f"Search error: {e}")
+        logger.error(f"Search error for user {user_id}, query '{query}': {e}")
         await search_msg.edit_message_text(
             "❌ An error occurred during search. Please try again later.",
             parse_mode='Markdown'
@@ -764,7 +774,7 @@ async def preview_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
     except Exception as e:
-        logger.error(f"Preview error: {e}")
+        logger.error(f"Preview error for user {user_id}, callback {query.data}: {e}")
         await query.edit_message_text(
             "❌ An error occurred while fetching preview. Please try again later.",
             parse_mode='Markdown'
@@ -842,7 +852,7 @@ async def download_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     
     except Exception as e:
-        logger.error(f"Download error: {e}")
+        logger.error(f"Download error for user {user_id}, callback {query.data}: {e}")
         await query.edit_message_text(
             "❌ An error occurred. Try again later.",
             parse_mode='Markdown'
@@ -869,45 +879,49 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def webhook_handler(request):
     try:
-        update = Update.de_json(await request.json(), application.bot)
+        data = await request.json()
+        update = Update.de_json(data, application.bot)
         if update:
             await application.process_update(update)
+            logger.debug(f"Processed update from user {update.effective_user.id if update.effective_user else 'unknown'}")
+        else:
+            logger.warning("Received invalid update data")
         return web.Response(status=200)
+    except ValueError as e:
+        logger.error(f"Webhook JSON decode error: {e}")
+        return web.Response(status=400)
     except Exception as e:
-        logger.error(f"Webhook error: {e}")
+        logger.error(f"Webhook processing error: {e}")
         return web.Response(status=500)
 
 async def health_check(request):
     return web.Response(text="OK", status=200)
 
-async def setup_webhook(application):
-    try:
-        await application.bot.set_webhook(url=WEBHOOK_URL)
-        logger.info(f"Webhook set to {WEBHOOK_URL}")
-    except Exception as e:
-        logger.error(f"Failed to set webhook: {e}")
+async def setup_webhook(application, retries=3, delay=5):
+    for attempt in range(retries):
+        try:
+            await application.bot.set_webhook(url=WEBHOOK_URL, drop_pending_updates=True)
+            logger.info(f"Webhook successfully set to {WEBHOOK_URL}")
+            return True
+        except Exception as e:
+            logger.error(f"Attempt {attempt + 1}/{retries} to set webhook failed: {e}")
+            if attempt < retries - 1:
+                await asyncio.sleep(delay)
+    logger.error("Failed to set webhook after all retries")
+    return False
 
-def keep_alive():
-    def ping():
-        while True:
-            try:
-                async def async_ping():
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(f"{BASE_URL}/health") as response:
-                            if response.status == 200:
-                                logger.info("Sent keep-alive ping")
-                            else:
-                                logger.warning(f"Keep-alive ping failed: {response.status}")
-                
-                asyncio.run(async_ping())
-                time.sleep(300)
-            except Exception as e:
-                logger.error(f"Keep-alive error: {e}")
-                time.sleep(300)
-    
-    thread = Thread(target=ping)
-    thread.daemon = True
-    thread.start()
+async def keep_alive():
+    while True:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{BASE_URL}/health") as response:
+                    if response.status == 200:
+                        logger.info("Sent keep-alive ping")
+                    else:
+                        logger.warning(f"Keep-alive ping failed: {response.status}")
+        except aiohttp.ClientError as e:
+            logger.error(f"Keep-alive ping error: {e}")
+        await asyncio.sleep(300)
 
 async def main():
     global application
@@ -928,23 +942,36 @@ async def main():
         web.get('/health', health_check)
     ])
     
-    keep_alive()
+    # Start keep_alive in the background
+    asyncio.create_task(keep_alive())
+    
     await application.initialize()
-    await setup_webhook(application)
+    if not await setup_webhook(application):
+        logger.critical("Webhook setup failed; exiting")
+        return
+    
     await application.start()
     
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', PORT)
     await site.start()
+    logger.info(f"Web server started on port {PORT}")
     
     try:
         while True:
             await asyncio.sleep(3600)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        logger.info("Shutting down...")
+    finally:
         await runner.cleanup()
         await application.stop()
         await application.shutdown()
+        logger.info("Shutdown complete")
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        logger.critical(f"Main loop error: {e}")
+        raise
