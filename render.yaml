@@ -5,8 +5,10 @@ services:
     region: oregon
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: python main.py
+    startCommand: gunicorn webhook:app
     envVars:
       - key: BOT_TOKEN
+        sync: false
+      - key: WEBHOOK_URL
         sync: false
     autoDeploy: true
