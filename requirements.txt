@@ -1,24 +1,5 @@
-# Core dependencies
-aiohttp==3.9.5
 python-telegram-bot==20.7
+aiohttp==3.9.5
 beautifulsoup4==4.12.3
-lxml==4.9.4
-
-# Web server
-aiohttp[speedups]==3.9.1
-
-# HTML parsing
-html5lib==1.1
-
-# Additional utilities
-asyncio-throttle==1.0.2
-cachetools==5.3.2
-
-# For better performance
-uvloop==0.19.0; sys_platform != "win32"
-
-# Security
-cryptography==41.0.8
-
 aiohttp.web==3.9.5
 motor==3.6.0
