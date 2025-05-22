@@ -1,12 +1,23 @@
 services:
   - type: web
-    name: telegram-ebooks-bot
-    runtime: python
-    region: oregon
+    name: ebook-downloader-bot
+    env: python
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python main.py
+    region: oregon
+    buildCommand: |
+      pip install -r requirements.txt
+    startCommand: |
+      python main.py
     envVars:
       - key: BOT_TOKEN
         sync: false
+      - key: BASE_URL
+        value: https://ebook-downloader-bot.onrender.com
+      - key: PORT
+        value: 8080
+      - key: ADMIN_IDS
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.10
+    healthCheckPath: /health
     autoDeploy: true
