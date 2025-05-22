@@ -1,7 +1,6 @@
 import os
 import logging
 import requests
-import re
 from urllib.parse import quote
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
@@ -23,6 +22,10 @@ PORT = int(os.getenv('PORT', 8080))
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN environment variable is required")
 
+# In-memory storage for book metadata
+book_cache = {}  # Maps short keys to book data
+cache_counter = 0  # To generate unique keys
+
 class eBookDownloader:
     def __init__(self):
         self.session = requests.Session()
@@ -33,7 +36,6 @@ class eBookDownloader:
     def search_project_gutenberg(self, query, limit=10):
         """Search Project Gutenberg for free books"""
         try:
-            # Use Gutenberg API
             api_url = "https://gutendex.com/books/"
             params = {
                 'search': query,
@@ -97,10 +99,8 @@ class eBookDownloader:
         """Get download link for a book"""
         try:
             if source == 'gutenberg':
-                # Project Gutenberg EPUB format
                 return f"https://www.gutenberg.org/ebooks/{book_id}.epub.images"
             elif source == 'archive':
-                # Internet Archive PDF format
                 return f"https://archive.org/download/{book_id}/{book_id}.pdf"
             return None
         except Exception as e:
@@ -139,7 +139,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 *Commands:*
 - `/start` - Start the bot
-- `/search <book name>` - Search for books
+- `/search <book title>` - Search for books
 - `/help` - Show this help
 - `/about` - About this bot
 
@@ -184,6 +184,7 @@ Built with ❤️ for book lovers worldwide.
 
 async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Search for books."""
+    global cache_counter
     if not context.args:
         await update.message.reply_text(
             "Please provide a book title to search.\n\n*Example:* `/search Pride and Prejudice`",
@@ -209,13 +210,24 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Create inline keyboard with results
     keyboard = []
-    for i, book in enumerate(all_books[:12]):  # Limit to 12 results
+    for book in all_books[:12]:  # Limit to 12 results
         source_emoji = "📖" if book['source'] == 'gutenberg' else "📚"
         title = book['title'][:45] + "..." if len(book['title']) > 45 else book['title']
         author = book.get('author', 'Unknown')[:20] + "..." if len(book.get('author', 'Unknown')) > 20 else book.get('author', 'Unknown')
         
+        # Generate a short unique key for callback_data
+        cache_key = f"book_{cache_counter}"
+        cache_counter += 1
+        book_cache[cache_key] = {'source': book['source'], 'id': book['id']}
+        
         button_text = f"{source_emoji} {title}\n👤 {author}"
-        callback_data = f"download_{book['source']}_{book['id']}"
+        callback_data = cache_key
+        
+        # Ensure callback_data is within 64 bytes
+        if len(callback_data.encode('utf-8')) > 64:
+            logger.error(f"Callback data too long: {callback_data}")
+            continue
+        
         keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -231,13 +243,15 @@ async def download_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     try:
-        # Parse callback data
-        parts = query.data.split('_', 2)
-        if len(parts) != 3:
+        # Get book data from cache
+        callback_data = query.data
+        if callback_data not in book_cache:
             await query.edit_message_text("❌ Invalid selection. Please search again.")
             return
-            
-        _, source, book_id = parts
+        
+        book_data = book_cache[callback_data]
+        source = book_data['source']
+        book_id = book_data['id']
         
         await query.edit_message_text("📥 Preparing your download link...")
         
@@ -268,6 +282,9 @@ async def download_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=reply_markup,
                 disable_web_page_preview=True
             )
+            
+            # Clean up cache (optional, to prevent memory buildup)
+            del book_cache[callback_data]
         else:
             await query.edit_message_text("❌ Sorry, couldn't generate download link for this book. Please try another one.")
     
@@ -294,38 +311,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Keep the service alive (important for Render)
 def keep_alive():
     """Keep the service alive by making periodic requests."""
-    import time
-    import threading
-    
     def ping():
         while True:
             try:
                 time.sleep(300)  # Sleep for 5 minutes
-                # You can add a simple HTTP server here if needed
             except Exception as e:
                 logger.error(f"Keep alive error: {e}")
     
-    thread = threading.Thread(target=ping)
+    thread = Thread(target=ping)
     thread.daemon = True
     thread.start()
 
 def main():
     """Start the bot."""
-    # Keep service alive
     keep_alive()
-    
-    # Create the Application
     application = Application.builder().token(BOT_TOKEN).build()
-
-    # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("about", about_command))
     application.add_handler(CommandHandler("search", search_books))
-    application.add_handler(CallbackQueryHandler(download_book, pattern="^download_"))
+    application.add_handler(CallbackQueryHandler(download_book, pattern="^book_|^back_to_search"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    # Run the bot
     logger.info("Starting bot...")
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,
