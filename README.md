@@ -2,7 +2,7 @@
 
 A powerful Telegram bot that helps users find and download free eBooks from legal sources including Project Gutenberg and Internet Archive.
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/yourusername/telegram-ebooks-bot)
 
 ## 🌟 Features
 
@@ -22,10 +22,17 @@ A powerful Telegram bot that helps users find and download free eBooks from lega
 2. Send `/newbot` and follow the instructions
 3. Save your bot token (format: `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`)
 
-### 2. Deploy on Render (Free)
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
+## ⚡ Quick Deploy
 
-**Or deploy manually:**
+### One-Click Deploy to Render
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/mr-adnan-adu/telegram-ebooks-bot)
+
+**Just click the button above and:**
+1. 🔗 Connect your GitHub account
+2. 🔑 Add your `BOT_TOKEN` from @BotFather
+3. 🚀 Deploy in 2 minutes!
+
+### Manual Deploy Steps
 1. Fork this repository
 2. Create account on [Render](https://render.com)
 3. Create new Web Service from your GitHub repo
@@ -67,7 +74,7 @@ telegram-ebooks-bot/
 ### Setup
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/telegram-ebooks-bot.git
+git clone https://github.com/mr-adnan-adu/telegram-ebooks-bot.git
 cd telegram-ebooks-bot
 
 # Install dependencies
@@ -202,7 +209,7 @@ We welcome contributions! Here's how you can help:
 ### Development Setup
 ```bash
 # Fork the repo
-git clone https://github.com/yourusername/telegram-ebooks-bot.git
+git clone https://github.com/mr-adnan-adu/telegram-ebooks-bot.git
 
 # Create feature branch
 git checkout -b feature/amazing-feature
@@ -321,10 +328,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Contact
 
-- **Developer**: [Your Name](https://github.com/yourusername)
-- **Email**: your.email@example.com
-- **Project**: [GitHub Repository](https://github.com/yourusername/telegram-ebooks-bot)
-- **Issues**: [Report Bug](https://github.com/yourusername/telegram-ebooks-bot/issues)
+- **Developer**: [Your Name](https://github.com/mr-adnan-adu)
+- **Email**: adnanmuhammedkundukara@gmail.com
+- **Project**: [GitHub Repository](https://github.com/mr-adnan-adu/telegram-ebooks-bot)
+- **Issues**: [Report Bug](https://github.com/mr-adnan-adu/telegram-ebooks-bot/issues)
 
 ---
 
@@ -332,7 +339,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Made with ❤️ for book lovers worldwide**
 
-[⭐ Star this repo](https://github.com/yourusername/telegram-ebooks-bot) | [🐛 Report Bug](https://github.com/yourusername/telegram-ebooks-bot/issues) | [💡 Request Feature](https://github.com/yourusername/telegram-ebooks-bot/issues)
+[⭐ Star this repo](https://github.com/mr-adnan-adu/telegram-ebooks-bot) | [🐛 Report Bug](https://github.com/mr-adnan-adu/telegram-ebooks-bot/issues) | [💡 Request Feature](https://github.com/mr-adnan-adu/telegram-ebooks-bot/issues)
 
 </div>
 
