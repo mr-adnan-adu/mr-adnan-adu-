@@ -1217,10 +1217,12 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
             title = book['title'][:40] + "..." if len(book['title']) > 40 else book['title']
             author = book.get('author', 'Unknown')[:25] + "..." if len(book.get('author', 'Unknown')) > 25 else book.get('author', 'Unknown')
             
-            # Create cache keys
+            # Create cache keys - Fixed the f-string issue
             inner_string = f"{cache_counter}_{book['title']}_{book['source']}"
             book_cache_key = f"b_{md5(inner_string.encode()).hexdigest()[:8]}"
-            preview_cache_key = f"p_{md5(f'{cache_counter}_{book["title"]}_{book["source"]}'.encode()).hexdigest()[:8]}"
+            
+            preview_inner_string = f"{cache_counter}_{book['title']}_{book['source']}"
+            preview_cache_key = f"p_{md5(preview_inner_string.encode()).hexdigest()[:8]}"
             cache_counter += 1
             
             # Store book data in cache (always use in-memory for this temporary data)
