@@ -1,14 +1,12 @@
 services:
   - type: web
     name: telegram-ebooks-bot
-    env: python
+    runtime: python
     region: oregon
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn webhook:app --worker-class uvicorn.workers.UvicornWorker
+    startCommand: python main.py
     envVars:
       - key: BOT_TOKEN
         sync: false
-      - key: WEBHOOK_URL
-        value: https://telegram-ebooks-bot.onrender.com
     autoDeploy: true
