@@ -10,5 +10,5 @@ services:
       - key: BOT_TOKEN
         sync: false
       - key: WEBHOOK_URL
-        sync: false
+        value: https://telegram-ebooks-bot.onrender.com
     autoDeploy: true
