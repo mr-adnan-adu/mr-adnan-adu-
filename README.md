@@ -1,364 +1,349 @@
-# 📚 Telegram eBooks Downloader Bot
+Below is an updated `README.md` for the Telegram eBook Downloader Bot, reflecting the latest project setup with `main.py` as the primary script, webhook-based architecture, and deployment on Render. This version includes clear instructions for local setup, Render deployment, testing, troubleshooting, and usage, tailored for developers and users. It incorporates the project structure and environment variables from the provided `render.yaml` and `requirements.txt`, ensuring consistency with the current date (May 22, 2025) and context.
 
-A powerful Telegram bot that helps users find and download free eBooks from legal sources including Project Gutenberg and Internet Archive.
+### README.md
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/mr-adnan-adu/telegram-ebooks-bot)
+```markdown
+# eBook Downloader Bot
 
-## 🌟 Features
+A Telegram bot that enables users to search and download free eBooks from Project Gutenberg, Internet Archive, and Z-Library. Built with Python and deployed on Render, the bot uses a webhook-based architecture for efficient operation. Features include book previews, pagination, rate limiting, admin broadcasts, and status monitoring.
 
-- 🔍 **Smart Search**: Search across multiple free book repositories
-- 📖 **70,000+ Books**: Access Project Gutenberg's entire collection
-- 📚 **Millions More**: Search Internet Archive's vast library
-- 📱 **User-Friendly**: Intuitive inline keyboard interface
-- 🆓 **100% Free**: Only provides legal, public domain books
-- ⚡ **Fast**: Optimized search and download links
-- 🛡️ **Safe**: No copyright infringement, all books are legal
-- 🌐 **Multi-Format**: EPUB and PDF downloads available
+## Features
 
-## 🚀 Quick Start
+- **Search Books**: Use `/search <title>` to find eBooks across Project Gutenberg, Internet Archive, and Z-Library.
+- **Book Previews**: View detailed information (title, author, year, language, format, file size, ISBN, description) via the "✅ Preview/Details" button.
+- **Pagination**: Navigate search results with "Next" and "Previous" buttons.
+- **Sources**:
+  - 📖 **Project Gutenberg**: 70,000+ public domain eBooks (EPUB).
+  - 📚 **Internet Archive**: Millions of free books (PDF).
+  - 📱 **Z-Library**: Various formats (may require login for some downloads).
+- **Commands**:
+  - `/start`: Displays a welcome message.
+  - `/help`: Shows usage instructions.
+  - `/about`: Provides bot and source information.
+  - `/status`: Reports bot uptime, search count, user count, cache size, and source availability.
+  - `/broadcast <message>`: Admin-only command to send messages to all users.
+- **Rate Limiting**: Limits users to 5 searches per minute and admins to 1 broadcast every 5 minutes.
+- **Webhook-Based**: Uses Telegram webhooks for efficient, real-time updates.
+- **Health Check**: Includes a `/health` endpoint for Render’s health monitoring and keep-alive pings.
+- **Deployment**: Optimized for Render’s free tier with automatic deployment via `render.yaml`.
 
-### 1. Create Your Telegram Bot
-1. Message [@BotFather](https://t.me/BotFather) on Telegram
-2. Send `/newbot` and follow the instructions
-3. Save your bot token (format: `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`)
+## Prerequisites
 
-## ⚡ Quick Deploy
+- **Python**: Version 3.10.
+- **Telegram Bot Token**: Obtain from [BotFather](https://t.me/BotFather) on Telegram.
+- **Render Account**: Sign up at [render.com](https://render.com) for deployment.
+- **Git Repository**: Host on GitHub, GitLab, or similar.
+- **ngrok** (for local testing): Download from [ngrok.com](https://ngrok.com) to expose your local server for webhook testing.
 
-### One-Click Deploy to Render
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/mr-adnan-adu/telegram-ebooks-bot)
-
-**Just click the button above and:**
-1. 🔗 Connect your GitHub account
-2. 🔑 Add your `BOT_TOKEN` from @BotFather
-3. 🚀 Deploy in 2 minutes!
-
-### Manual Deploy Steps
-1. Fork this repository
-2. Create account on [Render](https://render.com)
-3. Create new Web Service from your GitHub repo
-4. Add environment variable: `BOT_TOKEN=your_bot_token`
-5. Deploy!
-
-### 3. Test Your Bot
-- Find your bot on Telegram
-- Send `/start` to begin
-- Try `/search Pride and Prejudice`
-- Download your first free book! 📖
-
-## 📋 Commands
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `/start` | Start the bot and see welcome message | `/start` |
-| `/search <query>` | Search for books by title or author | `/search Harry Potter` |
-| `/help` | Show help information | `/help` |
-| `/about` | Learn about the bot and sources | `/about` |
-
-## 🏗️ Project Structure
+## Project Structure
 
 ```
-telegram-ebooks-bot/
-├── main.py              # Main bot application
-├── requirements.txt     # Python dependencies
-├── render.yaml         # Render deployment config
-├── README.md           # This file
-└── .gitignore         # Git ignore file
+├── main.py           # Main bot script (webhook-based)
+├── requirements.txt  # Python dependencies
+├── render.yaml       # Render deployment configuration
+├── README.md        # Project documentation
 ```
 
-## 🔧 Local Development
+## Setup Instructions
 
-### Prerequisites
-- Python 3.8+
-- Telegram Bot Token
+### Local Setup
 
-### Setup
-```bash
-# Clone the repository
-git clone https://github.com/mr-adnan-adu/telegram-ebooks-bot.git
-cd telegram-ebooks-bot
+1. **Clone the Repository**:
+   ```bash
+   git clone https://github.com/your-repo/ebook-downloader-bot.git
+   cd ebook-downloader-bot
+   ```
 
-# Install dependencies
-pip install -r requirements.txt
+2. **Create a Virtual Environment**:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
 
-# Set environment variable
-export BOT_TOKEN="your_bot_token_here"
+3. **Install Dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+   This installs:
+   - `python-telegram-bot==20.7`
+   - `aiohttp==3.9.5`
+   - `beautifulsoup4==4.12.3`
+   - `aiohttp.web==3.9.5`
 
-# Run the bot
-python main.py
+4. **Set Environment Variables**:
+   ```bash
+   export BOT_TOKEN="your_bot_token"
+   export BASE_URL="http://localhost:8080"
+   export ADMIN_IDS="your_telegram_id,another_id"
+   export PORT=8080
+   ```
+   - `BOT_TOKEN`: From BotFather.
+   - `ADMIN_IDS`: Comma-separated Telegram user IDs (e.g., `123456789,987654321`).
+   - `BASE_URL`: Local server URL (updated for ngrok in the next step).
+   - `PORT`: `8080` (matches `render.yaml`).
+
+5. **Expose Local Server with ngrok**:
+   ```bash
+   ngrok http 8080
+   ```
+   Copy the ngrok URL (e.g., `https://abc123.ngrok.io`) and update `BASE_URL`:
+   ```bash
+   export BASE_URL="https://abc123.ngrok.io"
+   ```
+
+6. **Set Telegram Webhook**:
+   ```bash
+   curl -F "url=https://abc123.ngrok.io/webhook/your_bot_token" https://api.telegram.org/botYOUR_BOT_TOKEN/setWebhook
+   ```
+   Verify:
+   ```bash
+   curl https://api.telegram.org/botYOUR_BOT_TOKEN/getWebhookInfo
+   ```
+   Expect: `{"ok":true,"result":{"url":"https://abc123.ngrok.io/webhook/your_bot_token",...}}`
+
+7. **Run the Bot**:
+   ```bash
+   python main.py
+   ```
+   Look for log: `Webhook set to https://abc123.ngrok.io/webhook/your_bot_token`.
+
+8. **Test Locally**:
+   - Open Telegram and interact with your bot:
+     - `/start`: Welcome message.
+     - `/search Pride and Prejudice`: Lists books with preview and download options.
+     - `/status`: Shows bot stats and source status.
+     - Click "✅ Preview/Details" to view book details.
+     - Use "Next/Previous" for pagination.
+   - Test health endpoint:
+     ```bash
+     curl http://localhost:8080/health
+     ```
+     Expect: `OK`
+
+### Deployment on Render
+
+1. **Create a Render Account**:
+   Sign up at [render.com](https://render.com).
+
+2. **Push to Git Repository**:
+   Ensure all files (`main.py`, `requirements.txt`, `render.yaml`, `README.md`) are in your repository:
+   ```bash
+   git add .
+   git commit -m "Initial setup for Render deployment"
+   git push origin main
+   ```
+
+3. **Create a Web Service**:
+   - In Render, select **New > Web Service** and connect your Git repository.
+   - Render will detect `render.yaml` and configure the service automatically.
+
+4. **Set Environment Variables**:
+   In Render’s dashboard (Environment section):
+   - `BOT_TOKEN`: Your Telegram bot token (set manually for security).
+   - `ADMIN_IDS`: Comma-separated Telegram user IDs for admins.
+   - `BASE_URL`: Your Render app URL (e.g., `https://ebook-downloader-bot.onrender.com`).
+   - `PORT`: `8080` (matches `render.yaml`).
+   - Note: `PYTHON_VERSION` (3.10) is set in `render.yaml`.
+
+5. **Deploy**:
+   - Render will execute:
+     - Build: `pip install -r requirements.txt`
+     - Start: `python main.py`
+   - Check Render logs for:
+     ```
+     Webhook set to https://ebook-downloader-bot.onrender.com/webhook/{BOT_TOKEN}
+     ```
+     ```
+     Sent keep-alive ping
+     ```
+
+6. **Verify Webhook**:
+   ```bash
+   curl https://api.telegram.org/botYOUR_BOT_TOKEN/getWebhookInfo
+   ```
+   Expect: `{"ok":true,"result":{"url":"https://ebook-downloader-bot.onrender.com/webhook/YOUR_BOT_TOKEN",...}}`
+
+7. **Test Deployment**:
+   - In Telegram, test:
+     - `/start`, `/search Pride and Prejudice`, `/status`, `/help`, `/about`.
+     - Preview books and download links.
+     - Pagination and admin broadcast (if admin).
+   - Verify health endpoint:
+     ```bash
+     curl https://ebook-downloader-bot.onrender.com/health
+     ```
+     Expect: `OK`
+   - Monitor Render logs for errors or successful interactions.
+
+## Usage
+
+1. **Start the Bot**:
+   - Send `/start` to receive a welcome message with available commands.
+
+2. **Search for Books**:
+   - Use `/search <book title>` (e.g., `/search The Great Gatsby`).
+   - Results include title, author, year, language, format, and file size.
+   - Click "✅ Preview/Details" for more info or the book title for a download link.
+
+3. **Navigate Results**:
+   - Use "Next" and "Previous" buttons for additional results.
+
+4. **Check Status**:
+   - Send `/status` to view:
+     - Uptime, total searches, user count, cache size.
+     - Availability of Project Gutenberg, Internet Archive, and Z-Library.
+
+5. **Admin Broadcast**:
+   - Admins (specified in `ADMIN_IDS`) can use `/broadcast <message>` to notify all users.
+   - Limited to 1 broadcast every 5 minutes.
+
+6. **Notes**:
+   - Project Gutenberg and Internet Archive provide free, public domain books.
+   - Z-Library may require an account for some downloads; check download links for details.
+   - Rate limits ensure fair usage (5 searches per minute).
+
+## Troubleshooting
+
+- **Webhook Not Set**:
+  - **Symptom**: Bot doesn’t respond; logs show “Failed to set webhook”.
+  - **Fix**: Verify `BOT_TOKEN` and `BASE_URL` in Render’s environment variables. Ensure `BASE_URL` is correct (Render assigns this on deployment).
+  - **Manual Fix**:
+    ```bash
+    curl -F "url=https://ebook-downloader-bot.onrender.com/webhook/YOUR_BOT_TOKEN" https://api.telegram.org/botYOUR_BOT_TOKEN/setWebhook
+    ```
+
+- **Health Check Failure**:
+  - **Symptom**: Render reports service as unhealthy.
+  - **Fix**: Ensure `curl https://ebook-downloader-bot.onrender.com/health` returns “OK”. Check logs for server errors. Verify `aiohttp.web==3.9.5` in `requirements.txt`.
+
+- **Z-Library Search Failures**:
+  - **Symptom**: Z-Library results are empty or fail.
+  - **Fix**: The `zLibrarySearch` class uses `https://z-lib.is`, which may change. Update `self.base_url` in `main.py` to the current Z-Library domain.
+  - **Test Locally**:
+    ```python
+    import asyncio
+    from main import downloader
+    async def test_zlib():
+        results = await downloader.zlibrary.search_books("Pride and Prejudice")
+        print(results)
+    asyncio.run(test_zlib())
+    ```
+
+- **Render Free Tier Spindown**:
+  - **Symptom**: Bot responds slowly after inactivity.
+  - **Fix**: The `keep_alive` function pings `/health` every 5 minutes to prevent spindown. If delays persist, upgrade to Render’s `starter` plan for dedicated resources.
+
+- **Build Failure**:
+  - **Symptom**: Render build fails (e.g., dependency errors).
+  - **Fix**: Check logs for missing packages or Python version mismatches. Ensure `requirements.txt` matches the provided version and `PYTHON_VERSION: 3.10` in `render.yaml`.
+
+- **Bot Not Responding**:
+  - **Symptom**: Commands like `/start` or `/search` don’t work.
+  - **Fix**: Check Render logs for errors (e.g., invalid `BOT_TOKEN`, port conflicts). Restart the service in Render. Verify webhook setup.
+
+## Contributing
+
+1. Fork the repository.
+2. Create a feature branch:
+   ```bash
+   git checkout -b feature/new-feature
+   ```
+3. Commit changes:
+   ```bash
+   git commit -m "Add new feature"
+   ```
+4. Push to the branch:
+   ```bash
+   git push origin feature/new-feature
+   ```
+5. Open a Pull Request on GitHub.
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details (note: you may need to add a `LICENSE` file to your repository).
+
+## Acknowledgments
+
+- [Project Gutenberg](https://www.gutenberg.org/) for public domain eBooks.
+- [Internet Archive](https://archive.org/) for free digital books.
+- [Z-Library](https://z-lib.is/) for additional book resources.
+- [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot) for the Telegram API library.
+- [Render](https://render.com/) for hosting and deployment.
+- Built on May 22, 2025, with ❤️ for book lovers worldwide.
+
+## Contact
+
+For issues or feature requests, open an issue on the [GitHub repository](https://github.com/your-repo/ebook-downloader-bot) or contact the maintainer at [your-email@example.com].
 ```
 
-## 🌐 Deployment Options
-
-### Free Hosting Platforms
-
-| Platform | Free Tier | Deploy Time | Uptime |
-|----------|-----------|-------------|---------|
-| **Render** ⭐ | 750 hrs/month | 2-3 min | 99.9% |
-| **Railway** | 500 hrs/month | 1-2 min | 99.9% |
-| **Heroku** | 550 hrs/month | 3-5 min | 99.5% |
-| **PythonAnywhere** | Always-on option | 5-10 min | 99.0% |
-
-### Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `BOT_TOKEN` | ✅ | Your Telegram bot token from @BotFather |
-| `PORT` | ❌ | Port number (auto-set by hosting platforms) |
-
-## 📚 Book Sources
-
-### Project Gutenberg
-- **Collection**: 70,000+ free eBooks
-- **Content**: Classic literature, historical texts
-- **Formats**: EPUB, HTML, TXT
-- **Languages**: 60+ languages
-- **License**: Public domain
-
-### Internet Archive
-- **Collection**: Millions of books and documents
-- **Content**: Academic texts, modern books, historical documents
-- **Formats**: PDF, EPUB, TXT
-- **Languages**: Multiple languages
-- **License**: Various (only free books served)
-
-## 📊 Usage Statistics
-
-```
-📈 Performance Metrics:
-• Search Speed: < 3 seconds
-• Download Success Rate: 99.5%
-• Uptime: 99.9%
-• Books Available: 70,000+
-```
-
-## 🛠️ Technical Details
-
-### Built With
-- **Python 3.11** - Core language
-- **python-telegram-bot** - Telegram Bot API wrapper  
-- **requests** - HTTP requests
-- **beautifulsoup4** - HTML parsing
-- **asyncio** - Asynchronous programming
-
-### Architecture
-```
-User → Telegram → Bot → Book APIs → Download Links → User
-     ↑                    ↓
-     └── Error Handling ──┘
-```
-
-### API Endpoints Used
-- **Gutendex API**: `https://gutendex.com/books/`
-- **Internet Archive API**: `https://archive.org/advancedsearch.php`
-
-## 🔒 Legal & Privacy
-
-### Legal Compliance
-- ✅ Only serves public domain and free books
-- ✅ Respects copyright laws
-- ✅ No pirated content
-- ✅ Complies with DMCA
-
-### Privacy
-- 🔒 No user data stored
-- 🔒 No conversation logging
-- 🔒 No personal information collected
-- 🔒 Temporary search queries only
-
-## 📱 Screenshots
-
-### Bot Interface
-```
-📚 Welcome to Free eBooks Downloader Bot!
-
-I help you find and download free eBooks from legal sources.
-
-Available Commands:
-• /search <book name> - Search for books
-• /help - Show help information  
-• /about - About this bot
-
-Example: /search Pride and Prejudice
-```
-
-### Search Results
-```
-📚 Found 12 books for 'Pride and Prejudice':
-
-📖 Pride and Prejudice
-👤 Jane Austen
-
-📖 Pride and Prejudice (Illustrated)
-👤 Jane Austen
-
-📚 Pride and Prejudice Analysis
-👤 Various Authors
-```
-
-## 🤝 Contributing
-
-We welcome contributions! Here's how you can help:
-
-### Ways to Contribute
-- 🐛 **Bug Reports**: Found a bug? Open an issue
-- 💡 **Feature Requests**: Have an idea? We'd love to hear it
-- 🔧 **Code**: Submit pull requests
-- 📖 **Documentation**: Improve our docs
-- 🌟 **Feedback**: Share your experience
-
-### Development Setup
-```bash
-# Fork the repo
-git clone https://github.com/mr-adnan-adu/telegram-ebooks-bot.git
-
-# Create feature branch
-git checkout -b feature/amazing-feature
-
-# Make changes and commit
-git commit -m "Add amazing feature"
-
-# Push and create pull request
-git push origin feature/amazing-feature
-```
-
-### Code Style
-- Follow PEP 8
-- Use meaningful variable names
-- Add comments for complex logic
-- Include error handling
-- Write tests for new features
-
-## 🆘 Troubleshooting
-
-### Common Issues
-
-**Bot not responding?**
-```bash
-✅ Check if BOT_TOKEN is correct
-✅ Verify bot is deployed and running
-✅ Check Render logs for errors
-```
-
-**Search returning no results?**
-```bash
-✅ Try different search terms
-✅ Check spelling
-✅ Use author names
-✅ Try shorter queries
-```
-
-**Download links not working?**
-```bash
-✅ Links expire after some time
-✅ Search again for fresh links
-✅ Try different format (EPUB/PDF)
-```
-
-### Getting Help
-- 📧 **Issues**: Open a GitHub issue
-- 💬 **Discussions**: Use GitHub Discussions
-- 📖 **Docs**: Check our documentation
-- 🤝 **Community**: Join our community
-
-## 📈 Roadmap
-
-### Version 2.0 (Planned)
-- [ ] User favorites system
-- [ ] Reading recommendations
-- [ ] Multiple language support
-- [ ] Advanced search filters
-- [ ] Book categories/genres
-- [ ] User statistics
-
-### Version 3.0 (Future)
-- [ ] AI-powered recommendations
-- [ ] Reading progress tracking
-- [ ] Social features
-- [ ] Mobile app companion
-- [ ] Offline reading support
-
-## 📊 Analytics
-
-### Usage Statistics
-```
-📈 Monthly Active Users: 1,000+
-📚 Books Downloaded: 10,000+
-🔍 Searches Performed: 50,000+
-⭐ User Satisfaction: 4.8/5
-```
-
-### Popular Books
-1. **Pride and Prejudice** - Jane Austen
-2. **The Great Gatsby** - F. Scott Fitzgerald  
-3. **Dracula** - Bram Stoker
-4. **Frankenstein** - Mary Shelley
-5. **Alice in Wonderland** - Lewis Carroll
-
-## 🏆 Recognition
-
-- 🌟 **GitHub Stars**: 500+
-- 🍴 **Forks**: 100+
-- 📦 **Downloads**: 10,000+
-- ⭐ **Rating**: 4.8/5
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-### What this means:
-- ✅ Free to use
-- ✅ Free to modify
-- ✅ Free to distribute
-- ✅ Commercial use allowed
-- ✅ No warranty provided
-
-## 🙏 Acknowledgments
-
-### Special Thanks
-- **Project Gutenberg** - For 70,000+ free books
-- **Internet Archive** - For preserving human knowledge
-- **Telegram** - For the excellent Bot API
-- **Render** - For free hosting
-- **Contributors** - For making this project better
-
-### Libraries Used
-- [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)
-- [requests](https://docs.python-requests.org/)
-- [beautifulsoup4](https://www.crummy.com/software/BeautifulSoup/)
-
-## 📞 Contact
-
-- **Developer**: [Your Name](https://github.com/mr-adnan-adu)
-- **Email**: adnanmuhammedkundukara@gmail.com
-- **Project**: [GitHub Repository](https://github.com/mr-adnan-adu/telegram-ebooks-bot)
-- **Issues**: [Report Bug](https://github.com/mr-adnan-adu/telegram-ebooks-bot/issues)
-
----
-
-<div align="center">
-
-**Made with ❤️ for book lovers worldwide**
-
-[⭐ Star this repo](https://github.com/mr-adnan-adu/telegram-ebooks-bot) | [🐛 Report Bug](https://github.com/mr-adnan-adu/telegram-ebooks-bot/issues) | [💡 Request Feature](https://github.com/mr-adnan-adu/telegram-ebooks-bot/issues)
-
-</div>
-
----
-
-### 📝 Changelog
-
-#### v1.2.0 (Latest)
-- ✅ Added Internet Archive integration
-- ✅ Improved search algorithm
-- ✅ Enhanced error handling
-- ✅ Better user interface
-
-#### v1.1.0
-- ✅ Added Project Gutenberg API
-- ✅ Inline keyboard interface
-- ✅ Multiple book formats
-
-#### v1.0.0
-- ✅ Initial release
-- ✅ Basic search functionality
-- ✅ Telegram bot integration
+### Key Features of the README
+
+1. **Comprehensive Documentation**:
+   - Covers features, setup (local and Render), usage, troubleshooting, and contribution guidelines.
+   - Includes specific commands for testing and deployment, with examples (e.g., `/search Pride and Prejudice`).
+
+2. **Up-to-Date Context**:
+   - Reflects the webhook-based `main.py`, `render.yaml`, and `requirements.txt` as of May 22, 2025.
+   - Mentions the current Z-Library URL (`https://z-lib.is`) and notes its potential to change.
+
+3. **User-Friendly Instructions**:
+   - Step-by-step guides for local testing with `ngrok` and Render deployment.
+   - Includes verification steps (e.g., `curl` commands for webhook and health checks).
+
+4. **Troubleshooting**:
+   - Addresses common issues like webhook setup, health check failures, Z-Library URL changes, and Render’s free tier spindown.
+   - Provides code snippets for debugging (e.g., testing Z-Library searches locally).
+
+5. **Project Structure**:
+   - Clearly lists files (`main.py`, `requirements.txt`, `render.yaml`, `README.md`) to avoid confusion about `webhook.py` (which was renamed).
+
+### Integration with Other Files
+
+- **main.py**: The `README` references `main.py` as the primary script, explaining its webhook-based operation and `/health` endpoint.
+- **render.yaml**: Instructions align with the provided `render.yaml`, including environment variables (`BOT_TOKEN`, `BASE_URL`, `PORT`, `ADMIN_IDS`) and deployment settings.
+- **requirements.txt**: The `README` lists dependencies exactly as in `requirements.txt` for transparency.
+- **webhook.py**: Not included in the project structure, as it was renamed to `main.py`. The `README` avoids confusion by focusing on the current setup.
+
+### Deployment Verification
+
+To ensure the `README` instructions work, follow these steps after updating your repository:
+
+1. **Push Changes**:
+   ```bash
+   git add README.md main.py requirements.txt render.yaml
+   git commit -m "Update README and project files for Render deployment"
+   git push origin main
+   ```
+
+2. **Render Deployment**:
+   - Confirm Render detects `render.yaml` and sets up the service.
+   - Set environment variables in Render’s dashboard as listed in the `README`.
+   - Check logs for “Webhook set to...” and “Sent keep-alive ping”.
+
+3. **Test**:
+   - Verify webhook:
+     ```bash
+     curl https://api.telegram.org/botYOUR_BOT_TOKEN/getWebhookInfo
+     ```
+   - Test bot commands in Telegram.
+   - Check health endpoint:
+     ```bash
+     curl https://ebook-downloader-bot.onrender.com/health
+     ```
+
+### Troubleshooting (from README)
+
+If issues arise, refer to the `Troubleshooting` section in the `README`. Common fixes include:
+- **Webhook**: Manually set with `curl` if automatic setup fails.
+- **Z-Library**: Update `base_url` in `main.py` if the domain changes.
+- **Render**: Check logs for build or runtime errors; ensure `requirements.txt` is correct.
+
+### If You Encounter Issues
+
+Please provide:
+- Render logs or local error messages.
+- Specific failing step (e.g., webhook setup, `/search` command).
+- Environment variable settings (exclude `BOT_TOKEN`).
+- Any deviations from the provided `README.md` or other files.
+
+This `README.md` provides a complete guide for setting up, deploying, and using the eBook Downloader Bot, aligned with the updated `main.py`, `render.yaml`, and `requirements.txt`. Let me know if you need further refinements, additional sections (e.g., API documentation), or help with deployment!
