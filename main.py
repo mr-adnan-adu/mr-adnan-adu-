@@ -1218,7 +1218,7 @@ async def search_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
             author = book.get('author', 'Unknown')[:25] + "..." if len(book.get('author', 'Unknown')) > 25 else book.get('author', 'Unknown')
             
             # Create cache keys
-            book_cache_key = f"b_{md5(f'{cache_counter}_{book[\"title\"]}_{book[\"source\"]}'.encode()).hexdigest()[:8]}"
+            book_cache_key = f"b_{md5(f'{cache_counter}_{book['title']}_{book['source']}'.encode()).hexdigest()[:8]}"
             preview_cache_key = f"p_{md5(f'{cache_counter}_{book["title"]}_{book["source"]}'.encode()).hexdigest()[:8]}"
             cache_counter += 1
             
