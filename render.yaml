@@ -1,9 +1,12 @@
 services:
   - type: web
-    name: telegram-ebook-bot
+    name: telegram-ebooks-bot
     env: python
     region: oregon
     plan: free
-    branch: main
     buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
+    startCommand: python main.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+    autoDeploy: true
