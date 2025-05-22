@@ -5,7 +5,7 @@ services:
     region: oregon
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn webhook:app
+    startCommand: gunicorn webhook:app --worker-class uvicorn.workers.UvicornWorker
     envVars:
       - key: BOT_TOKEN
         sync: false
