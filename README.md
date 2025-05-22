@@ -2,7 +2,7 @@
 
 A powerful Telegram bot that helps users find and download free eBooks from legal sources including Project Gutenberg and Internet Archive.
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/yourusername/telegram-ebooks-bot)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/mr-adnan-adu/telegram-ebooks-bot)
 
 ## 🌟 Features
 
